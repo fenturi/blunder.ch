@@ -6,6 +6,7 @@ create table if not exists users (
   username text not null,
   email text,
   password_hash text,
+  device_id text,
   is_premium boolean not null default false,
   premium_redeemed_at timestamptz,
   created_at timestamptz not null default now(),
@@ -15,10 +16,12 @@ create table if not exists users (
 alter table users
   add column if not exists email text,
   add column if not exists password_hash text,
+  add column if not exists device_id text,
   add column if not exists is_premium boolean not null default false,
   add column if not exists premium_redeemed_at timestamptz;
 
 create unique index if not exists users_email_unique_idx on users (lower(email)) where email is not null;
+create unique index if not exists users_device_id_unique_idx on users (device_id) where device_id is not null;
 
 create table if not exists imports (
   id uuid primary key default gen_random_uuid(),

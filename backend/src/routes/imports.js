@@ -1,6 +1,6 @@
 import express from "express";
 import { createImportRecord, getDailyPlanUsage, getImportById } from "../repositories/importsRepository.js";
-import { getUserByProviderUsername, upsertUser } from "../repositories/usersRepository.js";
+import { getUserByDeviceId, getUserByProviderUsername, upsertUser } from "../repositories/usersRepository.js";
 import { importQueue } from "../queue.js";
 import { hashPassword } from "../utils/hash.js";
 
@@ -43,6 +43,15 @@ function normalizeImportOptions(body) {
   };
 }
 
+function parseDeviceId(source) {
+  const deviceId = source.deviceId?.trim();
+  return deviceId && deviceId.length <= 128 ? deviceId : null;
+}
+
+function isUniqueDeviceError(error) {
+  return error.code === "23505" && error.constraint === "users_device_id_unique_idx";
+}
+
 importsRouter.get("/allowance/status", async (req, res, next) => {
   try {
     const provider = req.query.provider?.toLowerCase();
@@ -83,6 +92,7 @@ importsRouter.post("/", async (req, res, next) => {
     const username = req.body.username?.trim();
     const email = req.body.email?.trim();
     const password = req.body.password ?? "";
+    const deviceId = parseDeviceId(req.body);
     const options = normalizeImportOptions(req.body);
 
     if (!["chess.com", "lichess"].includes(provider) || !username) {
@@ -94,19 +104,33 @@ importsRouter.post("/", async (req, res, next) => {
     let user = await getUserByProviderUsername({ provider, username });
 
     if (!user) {
-      if (!email || password.length < 8) {
+      if (!email || password.length < 8 || !deviceId) {
         return res.status(400).json({
-          error: "email and an 8+ character password are required for a new account",
+          error: "email, an 8+ character password, and device id are required for a new account",
         });
       }
 
-      user = await upsertUser({
-        provider,
-        username,
-        email,
-        passwordHash: hashPassword(password),
-        isPremium: false,
-      });
+      const existingDeviceUser = await getUserByDeviceId(deviceId);
+
+      if (existingDeviceUser) {
+        return res.status(409).json({ error: "This device has already created an account. Please log in with that account." });
+      }
+
+      try {
+        user = await upsertUser({
+          provider,
+          username,
+          email,
+          passwordHash: hashPassword(password),
+          isPremium: false,
+          deviceId,
+        });
+      } catch (error) {
+        if (isUniqueDeviceError(error)) {
+          return res.status(409).json({ error: "This device has already created an account. Please log in with that account." });
+        }
+        throw error;
+      }
     }
 
     if (options.plan === "pro" && !user.is_premium) {

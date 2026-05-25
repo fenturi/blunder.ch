@@ -1,6 +1,7 @@
 import express from "express";
 import { config } from "../config.js";
 import {
+  getUserByDeviceId,
   getUserByEmail,
   getUserByProviderUsername,
   redeemPremium,
@@ -20,6 +21,15 @@ function parseIdentity(source) {
   }
 
   return { provider, username };
+}
+
+function parseDeviceId(source) {
+  const deviceId = source.deviceId?.trim();
+  return deviceId && deviceId.length <= 128 ? deviceId : null;
+}
+
+function isUniqueDeviceError(error) {
+  return error.code === "23505" && error.constraint === "users_device_id_unique_idx";
 }
 
 usersRouter.get("/status", async (req, res, next) => {
@@ -70,10 +80,11 @@ usersRouter.post("/register", async (req, res, next) => {
     const identity = parseIdentity(req.body);
     const email = req.body.email?.trim();
     const password = req.body.password ?? "";
+    const deviceId = parseDeviceId(req.body);
 
-    if (!identity || !email || password.length < 8) {
+    if (!identity || !email || password.length < 8 || !deviceId) {
       return res.status(400).json({
-        error: "provider, username, email, and an 8+ character password are required",
+        error: "provider, username, email, an 8+ character password, and device id are required",
       });
     }
 
@@ -83,12 +94,27 @@ usersRouter.post("/register", async (req, res, next) => {
       return res.status(409).json({ error: "Account already exists. Log in to upgrade." });
     }
 
-    const user = await upsertUser({
-      ...identity,
-      email,
-      passwordHash: hashPassword(password),
-      isPremium: false,
-    });
+    const existingDeviceUser = await getUserByDeviceId(deviceId);
+
+    if (existingDeviceUser) {
+      return res.status(409).json({ error: "This device has already created an account. Please log in with that account." });
+    }
+
+    let user;
+    try {
+      user = await upsertUser({
+        ...identity,
+        email,
+        passwordHash: hashPassword(password),
+        isPremium: false,
+        deviceId,
+      });
+    } catch (error) {
+      if (isUniqueDeviceError(error)) {
+        return res.status(409).json({ error: "This device has already created an account. Please log in with that account." });
+      }
+      throw error;
+    }
 
     return res.status(201).json(publicUser(user));
   } catch (error) {

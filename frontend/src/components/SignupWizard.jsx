@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { apiUrl } from "../lib/api.js";
+import { apiUrl, getDeviceId } from "../lib/api.js";
 
 const PLAN_ALLOWANCES = {
   free: 5,
@@ -179,6 +179,7 @@ export default function SignupWizard({ onImported, onRegistered }) {
     event.preventDefault();
     setStatus("loading");
     setMessage(state.plan === "pro" ? "creating account" : "queueing import");
+    const deviceId = getDeviceId();
 
     try {
       if (state.plan === "pro") {
@@ -192,6 +193,7 @@ export default function SignupWizard({ onImported, onRegistered }) {
             username: state.username.trim(),
             email: state.email.trim(),
             password: state.password,
+            deviceId,
           }),
         });
         const user = await registerResponse.json();
@@ -244,6 +246,7 @@ export default function SignupWizard({ onImported, onRegistered }) {
           username: state.username.trim(),
           email: state.email.trim(),
           password: state.password,
+          deviceId,
           gameTypes: ["rapid", "blitz", "bullet", "classical", "correspondence"],
           gameCount: PLAN_ALLOWANCES[state.plan],
           dateRange: "all",
