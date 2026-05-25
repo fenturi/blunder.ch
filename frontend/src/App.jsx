@@ -2881,7 +2881,7 @@ function RailMetric({ label, value }) {
   );
 }
 
-function RailAction({ children, onClick, emphasis = false }) {
+function RailAction({ children, onClick, emphasis = false, bright = false }) {
   return (
     <button
       type="button"
@@ -2889,10 +2889,10 @@ function RailAction({ children, onClick, emphasis = false }) {
       style={sx({
         width: "100%",
         minHeight: "38px",
-        background: emphasis ? "rgba(255,255,255,0.09)" : "transparent",
-        border: "1px solid rgba(255,255,255,0.09)",
+        background: bright ? "rgba(255,255,255,0.14)" : emphasis ? "rgba(255,255,255,0.09)" : "transparent",
+        border: bright ? "1px solid rgba(255,255,255,0.2)" : "1px solid rgba(255,255,255,0.09)",
         borderRadius: "6px",
-        color: emphasis ? "#fff" : "rgba(255,255,255,0.48)",
+        color: bright ? "rgba(255,255,255,0.9)" : emphasis ? "#fff" : "rgba(255,255,255,0.48)",
         cursor: "pointer",
         fontSize: "14px",
         fontWeight: 200,
@@ -2978,9 +2978,9 @@ function DashboardRail({
       <div style={sx({ display: "grid", gap: "10px" })}>
         {hasAccount ? (
           <>
+            <RailAction onClick={onUpgrade} bright>{account.isPremium ? "pro" : "upgrade"}</RailAction>
             <RailAction onClick={onImport} emphasis>import</RailAction>
             <RailAction onClick={onAccount} emphasis>account</RailAction>
-            <RailAction onClick={onUpgrade}>{account.isPremium ? "pro" : "upgrade"}</RailAction>
             <RailAction onClick={onLogout}>log out</RailAction>
           </>
         ) : (
@@ -3796,7 +3796,7 @@ function UpgradePage({ account, onBack, onUpgraded }) {
           </div>
 
           <div style={sx({ display: "grid", gap: "0" })}>
-            <UpgradeMetric label="daily allowance" value="20 games" />
+            <UpgradeMetric label="daily allowance" value="5 games" />
             <UpgradeMetric label="replenish" value="24:00 clock" />
             <UpgradeMetric label="price" value="$9.99 / month" />
           </div>
@@ -3900,7 +3900,7 @@ function ImportPage({ account, onBack, onImported }) {
   const [message, setMessage] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const plan = allowance?.isPremium || account.isPremium ? "pro" : "free";
-  const limit = plan === "pro" ? allowance?.proLimit ?? 20 : allowance?.freeLimit ?? 5;
+  const limit = plan === "pro" ? allowance?.proLimit ?? 5 : allowance?.freeLimit ?? 1;
   const storedRemaining = plan === "pro" ? allowance?.proRemaining ?? 0 : allowance?.freeRemaining ?? 0;
   const storedUsed = plan === "pro" ? allowance?.proUsed ?? 0 : allowance?.freeUsed ?? 0;
   const resetAt = plan === "pro" ? allowance?.proResetAt : allowance?.freeResetAt;

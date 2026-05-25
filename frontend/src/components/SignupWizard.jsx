@@ -2,8 +2,8 @@ import { useMemo, useState } from "react";
 import { apiUrl, getDeviceId } from "../lib/api.js";
 
 const PLAN_ALLOWANCES = {
-  free: 5,
-  pro: 20,
+  free: 1,
+  pro: 5,
 };
 
 function isEmail(value) {
@@ -57,8 +57,8 @@ function textButtonStyle(disabled = false) {
 function PlanCard({ plan, selected, onSelect }) {
   const isPro = plan === "pro";
   const rows = isPro
-    ? [["Daily games", "20"], ["Replenish", "24:00 hours"], ["Price", "$9.99/month"]]
-    : [["Daily games", "5"], ["Replenish", "24:00 hours"], ["Price", "$0"]];
+    ? [["Daily games", "5"], ["Replenish", "24:00 hours"], ["Price", "$9.99/month"]]
+    : [["Daily games", "1"], ["Replenish", "24:00 hours"], ["Price", "$0"]];
 
   return (
     <button
@@ -99,6 +99,8 @@ function PlanCard({ plan, selected, onSelect }) {
 }
 
 function Summary({ state }) {
+  const gamesToday = PLAN_ALLOWANCES[state.plan];
+
   return (
     <div
       style={{
@@ -113,7 +115,7 @@ function Summary({ state }) {
     >
       <strong style={{ color: "#fff", fontWeight: 250 }}>Confirm analysis</strong>
       <span>{state.provider} / {state.username}</span>
-      <span>{PLAN_ALLOWANCES[state.plan]} games today</span>
+      <span>{gamesToday} game{gamesToday === 1 ? "" : "s"} today</span>
       <span>{state.plan === "pro" ? "Pro, $9.99/month" : "Regular, $0/month"}</span>
     </div>
   );
@@ -360,8 +362,8 @@ export default function SignupWizard({ onImported, onRegistered }) {
             </section>
             <div style={{ color: "rgba(255,255,255,0.48)", fontSize: "15px" }}>
               {state.plan === "pro"
-                ? "Pro unlocks 20 games after Stripe checkout. Your allowance refills to full after a 24:00 hour clock."
-                : "5 games will be analysed now. Your allowance refills to full after a 24:00 hour clock."}
+                ? "Pro unlocks 5 games after Stripe checkout. Your allowance refills to full after a 24:00 hour clock."
+                : "1 game will be analysed now. Your allowance refills to full after a 24:00 hour clock."}
             </div>
             <div style={{ color: "rgba(255,255,255,0.48)", fontSize: "15px" }}>Estimated: {cost}</div>
             <div style={{ gridColumn: "1 / -1", display: "flex", gap: "24px", alignItems: "baseline" }}>

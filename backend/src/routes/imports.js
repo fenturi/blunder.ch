@@ -7,8 +7,8 @@ import { hashPassword } from "../utils/hash.js";
 export const importsRouter = express.Router();
 
 const PLAN_LIMITS = {
-  free: 5,
-  pro: 20,
+  free: 1,
+  pro: 5,
 };
 const allowedGameTypes = new Set(["rapid", "blitz", "bullet", "classical", "correspondence"]);
 const allowedDateRanges = new Set(["30d", "90d", "180d", "all"]);
@@ -135,7 +135,7 @@ importsRouter.post("/", async (req, res, next) => {
 
     if (options.plan === "pro" && !user.is_premium) {
       return res.status(402).json({
-        error: "Upgrade to Pro before importing 20 games.",
+        error: "Upgrade to Pro before importing 5 games.",
       });
     }
 

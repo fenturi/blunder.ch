@@ -93,7 +93,7 @@ function checkoutSessionParams({ req, user, provider, username }) {
   params.set("line_items[0][price_data][unit_amount]", String(SUBSCRIPTION_AMOUNT_CENTS));
   params.set("line_items[0][price_data][recurring][interval]", "month");
   params.set("line_items[0][price_data][product_data][name]", "Blunder Pro");
-  params.set("line_items[0][price_data][product_data][description]", "20 game analyses per 24 hours");
+  params.set("line_items[0][price_data][product_data][description]", "5 game analyses per 24 hours");
   params.set("line_items[0][quantity]", "1");
 
   return params;
