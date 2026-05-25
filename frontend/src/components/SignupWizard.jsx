@@ -300,12 +300,12 @@ export default function SignupWizard({ onImported, onRegistered }) {
           <div style={{ maxWidth: "460px", display: "grid", gap: "28px" }}>
             <label>
               <span style={labelStyle()}>Email</span>
-              <input type="email" value={state.email} onChange={(event) => update({ email: event.target.value })} style={fieldStyle()} />
+              <input type="email" autoComplete="email" value={state.email} onChange={(event) => update({ email: event.target.value })} style={fieldStyle()} />
             </label>
             <label>
               <span style={labelStyle()}>Password</span>
               <span style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "16px", alignItems: "end" }}>
-                <input type={state.showPassword ? "text" : "password"} value={state.password} onChange={(event) => update({ password: event.target.value })} style={fieldStyle()} />
+                <input type={state.showPassword ? "text" : "password"} autoComplete="new-password" value={state.password} onChange={(event) => update({ password: event.target.value })} style={fieldStyle()} />
                 <button type="button" onClick={() => update({ showPassword: !state.showPassword })} style={textButtonStyle(false)}>
                   {state.showPassword ? "hide" : "show"}
                 </button>
@@ -313,7 +313,7 @@ export default function SignupWizard({ onImported, onRegistered }) {
             </label>
             <label>
               <span style={labelStyle()}>Confirm password</span>
-              <input type={state.showPassword ? "text" : "password"} value={state.confirmPassword} onChange={(event) => update({ confirmPassword: event.target.value })} style={fieldStyle()} />
+              <input type={state.showPassword ? "text" : "password"} autoComplete="new-password" value={state.confirmPassword} onChange={(event) => update({ confirmPassword: event.target.value })} style={fieldStyle()} />
             </label>
             <button type="button" disabled={!accountValid} onClick={() => setStep(2)} style={textButtonStyle(!accountValid)}>Next</button>
           </div>
@@ -343,7 +343,7 @@ export default function SignupWizard({ onImported, onRegistered }) {
             </div>
             <label>
               <span style={labelStyle()}>Chess username</span>
-              <input type="text" value={state.username} onChange={(event) => update({ username: event.target.value })} style={fieldStyle()} />
+              <input type="text" autoComplete="username" value={state.username} onChange={(event) => update({ username: event.target.value })} style={fieldStyle()} />
             </label>
             <div style={{ display: "flex", gap: "24px", alignItems: "baseline" }}>
               <button type="button" onClick={() => setStep(1)} style={textButtonStyle(false)}>Back</button>

@@ -1,5 +1,4 @@
 import { pool } from "../db.js";
-import { ensureBestMoveColumns } from "./schemaRepository.js";
 
 export async function upsertGame({
   importId,
@@ -88,8 +87,6 @@ export async function markGameAnalysis(gameId, patch) {
 }
 
 export async function getGameById(gameId) {
-  await ensureBestMoveColumns();
-
   const gameQuery = "select * from games where id = $1";
   const annotationsQuery = `
     select
@@ -111,8 +108,6 @@ export async function getGameById(gameId) {
       clock_seconds,
       move_time_seconds,
       time_trouble,
-      best_move_uci,
-      best_move_san,
       created_at
     from move_annotations
     where game_id = $1

@@ -93,8 +93,6 @@ create table if not exists move_annotations (
   clock_seconds integer,
   move_time_seconds integer,
   time_trouble boolean not null default false,
-  best_move_uci text,
-  best_move_san text,
   created_at timestamptz not null default now()
 );
 
@@ -103,12 +101,12 @@ alter table move_annotations
   add column if not exists to_square text not null default '',
   add column if not exists cp_loss integer not null default 0,
   add column if not exists clock_seconds integer,
-  add column if not exists move_time_seconds integer,
-  add column if not exists best_move_uci text,
-  add column if not exists best_move_san text;
+  add column if not exists move_time_seconds integer;
 
 alter table move_annotations
   drop column if exists best_move,
+  drop column if exists best_move_uci,
+  drop column if exists best_move_san,
   drop column if exists best_line,
   drop column if exists played_rank,
   drop column if exists best_move_gap,

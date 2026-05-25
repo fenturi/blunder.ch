@@ -94,23 +94,6 @@ function moveToUci(move) {
   return `${move.from}${move.to}${move.promotion || ""}`;
 }
 
-function uciToSan(fen, uci) {
-  if (!uci || uci === "(none)") return "";
-
-  try {
-    const chess = new Chess(fen);
-    const move = chess.move({
-      from: uci.slice(0, 2),
-      to: uci.slice(2, 4),
-      promotion: uci[4],
-    });
-
-    return move?.san || "";
-  } catch {
-    return "";
-  }
-}
-
 export async function analyzeGame(gameId) {
   const { rows } = await pool.query("select * from games where id = $1", [gameId]);
   const game = rows[0];
@@ -197,8 +180,6 @@ export async function analyzeGame(gameId) {
         gamePhase,
         moveNumber,
       });
-      const bestMoveUci = best.bestMove || "";
-      const bestMoveSan = uciToSan(fenBefore, bestMoveUci);
       const clockSeconds = parseClockComment(move.comment);
       const previousClock = previousClockByColor[turn];
       const moveTimeSeconds = Number.isFinite(clockSeconds) && Number.isFinite(previousClock)
@@ -228,8 +209,6 @@ export async function analyzeGame(gameId) {
         clockSeconds,
         moveTimeSeconds,
         timeTrouble,
-        bestMoveUci,
-        bestMoveSan,
       });
     }
   } finally {

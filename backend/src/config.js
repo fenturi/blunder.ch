@@ -31,6 +31,51 @@ function list(name, fallback = "") {
     .filter(Boolean);
 }
 
+function normalizeOrigin(value) {
+  if (value === "*") return value;
+
+  try {
+    const url = new URL(value);
+    return url.origin;
+  } catch {
+    return value.replace(/\/+$/, "");
+  }
+}
+
+function withDomainAliases(origins) {
+  const expanded = new Set();
+
+  for (const origin of origins) {
+    const normalized = normalizeOrigin(origin);
+    expanded.add(normalized);
+
+    if (normalized === "*") continue;
+
+    try {
+      const url = new URL(normalized);
+      const aliases = url.hostname.startsWith("www.")
+        ? [url.hostname.slice(4)]
+        : [`www.${url.hostname}`];
+
+      for (const hostname of aliases) {
+        const alias = new URL(normalized);
+        alias.hostname = hostname;
+        expanded.add(alias.origin);
+      }
+    } catch {
+      // Ignore non-URL origins after adding their normalized value.
+    }
+  }
+
+  return [...expanded];
+}
+
+const defaultCorsOrigins = "http://localhost:5173,https://blunder.ch,https://www.blunder.ch";
+const configuredCorsOrigins = [
+  ...list("CORS_ORIGINS", defaultCorsOrigins),
+  ...list("PUBLIC_APP_URL"),
+];
+
 export const config = {
   env: process.env.NODE_ENV ?? "development",
   port: integer("PORT", "4000"),
@@ -51,7 +96,7 @@ export const config = {
   stripePriceId: process.env.STRIPE_PRICE_ID ?? "",
   stripeCurrency: (process.env.STRIPE_CURRENCY ?? "usd").toLowerCase(),
   stripeProAmountCents: integer("STRIPE_PRO_AMOUNT_CENTS", "999"),
-  corsOrigins: list("CORS_ORIGINS", "http://localhost:5173"),
+  corsOrigins: withDomainAliases(configuredCorsOrigins),
   chessDotComUserAgent:
     process.env.CHESS_DOT_COM_USER_AGENT ?? "blunder.app/0.1 support@example.com",
 };

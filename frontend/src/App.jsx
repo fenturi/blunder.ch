@@ -347,26 +347,6 @@ function formatMoveLabel(annotation) {
   return `${prefix} ${annotation.san}`;
 }
 
-function formatMovePrefix(annotation) {
-  return annotation?.ply % 2 === 1
-    ? `${annotation.move_index}.`
-    : `${annotation.move_index}...`;
-}
-
-function bestMoveSan(annotation) {
-  return annotation?.best_move_san || annotation?.bestMoveSan || "";
-}
-
-function bestMoveUci(annotation) {
-  return annotation?.best_move_uci || annotation?.bestMoveUci || "";
-}
-
-function formatBestMoveLabel(annotation) {
-  const san = bestMoveSan(annotation);
-  if (!san) return "";
-  return `${formatMovePrefix(annotation)} ${san}`;
-}
-
 function variationPly(basePly, index) {
   return Number(basePly || 0) + index + 1;
 }
@@ -830,10 +810,6 @@ function buildPhaseTroubleNotes(game, account) {
     const classificationLabel = formatClassification(classification);
     const label = `${phaseTitle(stat.phase)} ${classificationLabel.toLowerCase()}`;
     const moveLabel = formatMoveLabel(worst);
-    const bestLabel = formatBestMoveLabel(worst);
-    const bestMoveText = bestLabel
-      ? `Stockfish preferred ${bestLabel}, so this is not just a bad category label; it points to a concrete replacement move.`
-      : "Re-analyse this game to show the exact Stockfish replacement move for this position.";
 
     return {
       label,
@@ -844,11 +820,9 @@ function buildPhaseTroubleNotes(game, account) {
       metric: `${classificationLabel} | -${formatCpLoss(worst)} pawns`,
       contrast: {
         played: moveLabel,
-        best: bestLabel,
-        bestUci: bestMoveUci(worst),
         loss: formatCpLoss(worst),
       },
-      text: `${phaseTitle(stat.phase)} was the phase that actually cost you. You played ${moveLabel}, a ${classificationLabel.toLowerCase()} worth ${formatCpLoss(worst)} pawns. ${bestMoveText} ${phaseAdvice[stat.phase]}`,
+      text: `${phaseTitle(stat.phase)} was the phase that actually cost you. You played ${moveLabel}, a ${classificationLabel.toLowerCase()} worth ${formatCpLoss(worst)} pawns. ${phaseAdvice[stat.phase]}`,
     };
   });
 }
@@ -1713,16 +1687,8 @@ function GameSummaryPanel({ game, account, onSelectPly, onBoardFocus }) {
                 {note.contrast.played}
               </span>
             </div>
-            <div style={sx({ display: "grid", gridTemplateColumns: "64px minmax(0, 1fr)", gap: "12px", alignItems: "baseline" })}>
-              <span style={sx({ fontSize: "10px", letterSpacing: ".14em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)" })}>
-                best
-              </span>
-              <span style={sx({ fontSize: "14px", color: note.contrast.best ? "rgba(255,255,255,0.76)" : "rgba(255,255,255,0.32)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" })}>
-                {note.contrast.best || "best move unavailable"}
-              </span>
-            </div>
             <div style={sx({ fontSize: "11px", color: "rgba(255,255,255,0.34)", letterSpacing: ".06em", textTransform: "uppercase" })}>
-              swing {note.contrast.loss} pawns{note.contrast.bestUci ? ` | ${note.contrast.bestUci}` : ""}
+              swing {note.contrast.loss} pawns
             </div>
           </div>
         ) : null}

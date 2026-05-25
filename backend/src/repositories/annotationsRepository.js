@@ -1,8 +1,6 @@
 import { pool } from "../db.js";
-import { ensureBestMoveColumns } from "./schemaRepository.js";
 
 export async function replaceAnnotationsForGame(gameId, annotations) {
-  await ensureBestMoveColumns();
   await pool.query("delete from move_annotations where game_id = $1", [gameId]);
 
   for (const annotation of annotations) {
@@ -24,14 +22,12 @@ export async function replaceAnnotationsForGame(gameId, annotations) {
         game_phase,
         clock_seconds,
         move_time_seconds,
-        time_trouble,
-        best_move_uci,
-        best_move_san
+        time_trouble
       )
       values (
         $1, $2, $3, $4, $5, $6, $7,
         $8, $9, $10, $11, $12, $13, $14, $15, $16,
-        $17, $18, $19
+        $17
       )
     `;
 
@@ -53,8 +49,6 @@ export async function replaceAnnotationsForGame(gameId, annotations) {
       annotation.clockSeconds,
       annotation.moveTimeSeconds,
       annotation.timeTrouble,
-      annotation.bestMoveUci,
-      annotation.bestMoveSan,
     ];
 
     await pool.query(query, values);

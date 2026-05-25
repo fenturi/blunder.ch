@@ -42,8 +42,8 @@ ENGINE_DEPTH=14
 ENGINE_MULTIPV=2
 IMPORT_CONCURRENCY=2
 ANALYSIS_CONCURRENCY=1
-PUBLIC_APP_URL=https://your-frontend-domain.vercel.app
-CORS_ORIGINS=https://your-frontend-domain.vercel.app,http://localhost:5173
+PUBLIC_APP_URL=https://blunder.ch
+CORS_ORIGINS=https://blunder.ch,https://www.blunder.ch,http://localhost:5173
 STRIPE_SECRET_KEY=your_stripe_secret_key
 STRIPE_WEBHOOK_SECRET=your_stripe_webhook_secret
 STRIPE_CURRENCY=usd
@@ -56,13 +56,13 @@ CHESS_DOT_COM_USER_AGENT=blunder.app/0.1 support@example.com
 
 ## First Deploy
 
-After Railway deploys Postgres and the backend image, run migrations from the `backend-api` service shell:
+After Railway deploys Postgres and the backend image, migrations run automatically before the API and worker start. To run them manually from the `backend-api` service shell:
 
 ```sh
 npm run migrate
 ```
 
-Then restart both `backend-api` and `backend-worker`.
+Then restart both `backend-api` and `backend-worker` if you ran them manually.
 
 ## Frontend Variables
 
