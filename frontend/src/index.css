@@ -326,3 +326,223 @@ html, body, #root {
   background: rgba(255, 255, 255, 0.7);
   animation: gameSummaryLoading 920ms ease-in-out infinite;
 }
+
+@keyframes landingFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+    filter: blur(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes landingScan {
+  0% {
+    opacity: 0;
+    transform: translateY(-130%);
+  }
+
+  28% {
+    opacity: 0.36;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(260%);
+  }
+}
+
+@keyframes landingLivePulse {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(0.86);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.18);
+  }
+}
+
+@keyframes landingCriticalPulse {
+  0%, 100% {
+    opacity: 0.34;
+  }
+
+  50% {
+    opacity: 0.9;
+  }
+}
+
+@keyframes landingBoardBreathe {
+  0%, 100% {
+    filter: brightness(1);
+    transform: translateY(0);
+  }
+
+  50% {
+    filter: brightness(1.08);
+    transform: translateY(-2px);
+  }
+}
+
+.landing-title,
+.landing-copy,
+.landing-action,
+.landing-preview,
+.landing-feature,
+.landing-preview-row,
+.landing-signal {
+  animation: landingFadeUp 560ms cubic-bezier(.2, .8, .2, 1) both;
+}
+
+.landing-title {
+  animation-delay: 40ms;
+}
+
+.landing-copy {
+  animation-delay: 120ms;
+}
+
+.landing-action {
+  animation-delay: 210ms;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.landing-action:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.34) !important;
+  background: rgba(255, 255, 255, 0.16) !important;
+}
+
+.landing-action.is-secondary:hover {
+  color: rgba(255, 255, 255, 0.74) !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+.landing-preview {
+  position: relative;
+  overflow: hidden;
+  animation-delay: 160ms;
+}
+
+.landing-preview::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 56px;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.075) 48%,
+    transparent 100%
+  );
+  animation: landingScan 3.8s ease-in-out infinite;
+}
+
+.landing-board-frame {
+  animation: landingBoardBreathe 5.5s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.landing-preview-row,
+.landing-signal,
+.landing-feature {
+  animation-delay: var(--landing-row-delay, 0ms);
+}
+
+.landing-preview-row {
+  position: relative;
+}
+
+.landing-preview-row.is-critical::before {
+  content: "";
+  position: absolute;
+  left: -10px;
+  top: 0;
+  bottom: 13px;
+  width: 2px;
+  background: rgba(211, 161, 154, 0.82);
+  animation: landingCriticalPulse 1.8s ease-in-out infinite;
+}
+
+.landing-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 0 14px rgba(255, 255, 255, 0.22);
+  animation: landingLivePulse 1.6s ease-in-out infinite;
+}
+
+.landing-phase-pill.is-active {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03), 0 0 22px rgba(255, 255, 255, 0.035);
+}
+
+@media (max-width: 980px) {
+  .landing-hero,
+  .landing-detail-grid {
+    grid-template-columns: 1fr !important;
+    gap: 36px !important;
+  }
+
+  .landing-preview {
+    max-width: 760px;
+  }
+}
+
+@media (max-width: 640px) {
+  .landing-page {
+    gap: 48px !important;
+  }
+
+  .landing-hero {
+    gap: 34px !important;
+  }
+
+  .landing-title {
+    font-size: 46px !important;
+  }
+
+  .landing-copy {
+    font-size: 17px !important;
+  }
+
+  .landing-preview > div:nth-child(2) {
+    grid-template-columns: 1fr !important;
+  }
+
+  .landing-preview > div:last-child {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-title,
+  .landing-copy,
+  .landing-action,
+  .landing-preview,
+  .landing-feature,
+  .landing-preview-row,
+  .landing-signal,
+  .landing-live-dot,
+  .landing-board-frame,
+  .landing-preview::after,
+  .landing-preview-row.is-critical::before {
+    animation: none !important;
+    transform: none !important;
+    filter: none !important;
+  }
+}

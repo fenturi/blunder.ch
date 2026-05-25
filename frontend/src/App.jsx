@@ -167,6 +167,18 @@ function readStoredAccount() {
   }
 }
 
+function initialViewForAccount(account) {
+  if (typeof window === "undefined") return account.username ? "dash" : "landing";
+
+  return window.location.pathname === "/dashboard" && account.username ? "dash" : "landing";
+}
+
+function pathForView(view) {
+  return ["dash", "loading", "account", "upgrade", "import", "analysis"].includes(view)
+    ? "/dashboard"
+    : "/";
+}
+
 function storedAccountPayload(account) {
   return {
     email: account.email,
@@ -2778,6 +2790,8 @@ function AppShell({
   onBack,
   onHome,
 }) {
+  const copyrightYear = new Date().getFullYear();
+
   return (
     <div style={styles.app}>
       <div style={styles.header}>
@@ -2806,6 +2820,25 @@ function AppShell({
       </div>
 
       {children}
+
+      <footer
+        style={sx({
+          marginTop: "76px",
+          paddingTop: "18px",
+          borderTop: "1px solid rgba(255,255,255,0.045)",
+          display: "flex",
+          justifyContent: "space-between",
+          gap: "18px",
+          flexWrap: "wrap",
+          color: "rgba(255,255,255,0.24)",
+          fontSize: "11px",
+          letterSpacing: ".12em",
+          textTransform: "uppercase",
+        })}
+      >
+        <span>© {copyrightYear} blunder.ch. All rights reserved.</span>
+        <span>Proprietary software. Unauthorized copying prohibited.</span>
+      </footer>
 
       {import.meta.env.DEV ? <DevPanel /> : null}
     </div>
@@ -3005,6 +3038,310 @@ function Footnote({ onSignUp, label = "analysis requires an account" }) {
         </>
       ) : null}
     </div>
+  );
+}
+
+const landingFeatures = [
+  {
+    title: "Import",
+    kicker: "Chess.com + Lichess",
+    body: "Pull recent rapid, blitz, bullet, classical, or correspondence games into a review workspace.",
+  },
+  {
+    title: "Classify",
+    kicker: "Move by move",
+    body: "Mark every decision as book, best, good, inaccuracy, mistake, blunder, miss, or only move.",
+  },
+  {
+    title: "Replay",
+    kicker: "Board first",
+    body: "Step through the position with played squares, eval loss, game phase, and clock pressure intact.",
+  },
+  {
+    title: "Explore",
+    kicker: "After the mistake",
+    body: "Try alternate moves on the board, inspect live engine lines, and compare opening database continuations.",
+  },
+];
+
+const landingSignals = [
+  ["input", "online games"],
+  ["signal", "classification + cp loss"],
+  ["review", "board, clock, opening"],
+];
+
+function LandingPreview() {
+  const previewFen = "r1bq1rk1/ppp2ppp/2nbpn2/3p4/3P4/2PBPN2/PP3PPP/RNBQ1RK1 w - - 0 8";
+  const previewRows = [
+    ["8. Bd3", "book", "0.00"],
+    ["17. h3", "inaccuracy", "-0.72"],
+    ["24. Nxe5", "blunder", "-4.18"],
+  ];
+
+  return (
+    <div
+      className="landing-preview"
+      style={sx({
+        display: "grid",
+        gap: "18px",
+        minWidth: 0,
+        borderTop: "1px solid rgba(255,255,255,0.08)",
+        borderBottom: "1px solid rgba(255,255,255,0.08)",
+        padding: "24px 0",
+      })}
+    >
+      <div
+        style={sx({
+          display: "flex",
+          justifyContent: "space-between",
+          gap: "18px",
+          alignItems: "baseline",
+        })}
+      >
+        <span style={sx({ fontSize: "11px", letterSpacing: ".18em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)" })}>
+          live review model
+        </span>
+        <span className="landing-live-dot" aria-hidden="true" />
+      </div>
+
+      <div
+        style={sx({
+          display: "grid",
+          gridTemplateColumns: "minmax(190px, 300px) minmax(220px, 1fr)",
+          gap: "24px",
+          alignItems: "center",
+          minWidth: 0,
+        })}
+      >
+        <div className="landing-board-frame">
+          <MiniBoard fen={previewFen} />
+        </div>
+
+        <div style={sx({ display: "grid", gap: "16px", minWidth: 0 })}>
+          {previewRows.map(([move, label, swing], index) => (
+            <div
+              key={move}
+              className={index === 2 ? "landing-preview-row is-critical" : "landing-preview-row"}
+              style={sx({
+                "--landing-row-delay": `${index * 120}ms`,
+                display: "grid",
+                gridTemplateColumns: "72px minmax(0, 1fr) 58px",
+                gap: "12px",
+                alignItems: "center",
+                borderBottom: "1px solid rgba(255,255,255,0.055)",
+                paddingBottom: "13px",
+              })}
+            >
+              <span style={sx({ color: "rgba(255,255,255,0.72)", fontSize: "16px" })}>{move}</span>
+              <span style={sx({ color: "rgba(255,255,255,0.34)", fontSize: "12px", letterSpacing: ".13em", textTransform: "uppercase" })}>
+                {label}
+              </span>
+              <span style={sx({ color: label === "blunder" ? "#d3a19a" : "rgba(255,255,255,0.38)", fontSize: "13px", textAlign: "right" })}>
+                {swing}
+              </span>
+            </div>
+          ))}
+          <div style={sx({ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px", paddingTop: "4px" })}>
+            {["opening", "middlegame", "endgame"].map((phase, index) => (
+              <span
+                key={phase}
+                className={index === 1 ? "landing-phase-pill is-active" : "landing-phase-pill"}
+                style={sx({
+                  border: "1px solid rgba(255,255,255,0.07)",
+                  color: index === 1 ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.32)",
+                  background: index === 1 ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.02)",
+                  fontSize: "10px",
+                  letterSpacing: ".12em",
+                  textTransform: "uppercase",
+                  padding: "9px 8px",
+                  textAlign: "center",
+                })}
+              >
+                {phase}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div
+        style={sx({
+          display: "grid",
+          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+          gap: "12px",
+          paddingTop: "4px",
+        })}
+      >
+        {landingSignals.map(([label, value], index) => (
+          <div
+            key={label}
+            className="landing-signal"
+            style={sx({
+              "--landing-row-delay": `${360 + index * 90}ms`,
+              display: "grid",
+              gap: "7px",
+              minWidth: 0,
+            })}
+          >
+            <span style={sx({ fontSize: "10px", letterSpacing: ".14em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)" })}>
+              {label}
+            </span>
+            <span style={sx({ fontSize: "13px", color: "rgba(255,255,255,0.58)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" })}>
+              {value}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LandingPage({ account, onSignUp, onLogin, onDashboard }) {
+  const hasAccount = !!account?.username;
+
+  return (
+    <AppShell view="landing" onHome={() => {}}>
+      <main
+        className="landing-page"
+        style={sx({
+          maxWidth: "1240px",
+          display: "grid",
+          gap: "68px",
+        })}
+      >
+        <section
+          className="landing-hero"
+          style={sx({
+            display: "grid",
+            gridTemplateColumns: "minmax(320px, 0.92fr) minmax(420px, 1fr)",
+            gap: "56px",
+            alignItems: "end",
+          })}
+        >
+          <div style={sx({ display: "grid", gap: "28px", minWidth: 0 })}>
+            <div style={sx({ fontSize: "12px", letterSpacing: ".18em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)" })}>
+              chess analysis for games you actually played
+            </div>
+            <h1
+              className="landing-title"
+              style={sx({
+                margin: 0,
+                fontSize: "64px",
+                lineHeight: 1.02,
+                fontWeight: 200,
+                color: "#fff",
+                letterSpacing: 0,
+                maxWidth: "720px",
+              })}
+            >
+              blunder.ch
+            </h1>
+            <p
+              className="landing-copy"
+              style={sx({
+                margin: 0,
+                maxWidth: "620px",
+                color: "rgba(255,255,255,0.56)",
+                fontSize: "20px",
+                lineHeight: 1.55,
+              })}
+            >
+              Import your online games, find the moments that changed them, and review each mistake with board context instead of a wall of engine output.
+            </p>
+            <div style={sx({ display: "flex", gap: "14px", flexWrap: "wrap", alignItems: "center", paddingTop: "6px" })}>
+              <button
+                type="button"
+                onClick={hasAccount ? onDashboard : onSignUp}
+                className="landing-action"
+                style={sx({
+                  border: "1px solid rgba(255,255,255,0.22)",
+                  background: "rgba(255,255,255,0.12)",
+                  color: "#fff",
+                  minHeight: "42px",
+                  padding: "11px 16px",
+                  borderRadius: "6px",
+                  fontFamily: "inherit",
+                  fontSize: "14px",
+                  letterSpacing: ".08em",
+                  textTransform: "uppercase",
+                  cursor: "pointer",
+                })}
+              >
+                {hasAccount ? "open dashboard" : "start analysis"}
+              </button>
+              <button
+                type="button"
+                onClick={hasAccount ? onDashboard : onLogin}
+                className="landing-action is-secondary"
+                style={sx({
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  background: "transparent",
+                  color: "rgba(255,255,255,0.54)",
+                  minHeight: "42px",
+                  padding: "11px 16px",
+                  borderRadius: "6px",
+                  fontFamily: "inherit",
+                  fontSize: "14px",
+                  letterSpacing: ".08em",
+                  textTransform: "uppercase",
+                  cursor: "pointer",
+                })}
+              >
+                {hasAccount ? account.username : "log in"}
+              </button>
+            </div>
+          </div>
+          <LandingPreview />
+        </section>
+
+        <section
+          className="landing-detail-grid"
+          style={sx({
+            display: "grid",
+            gridTemplateColumns: "260px minmax(0, 1fr)",
+            gap: "44px",
+            borderTop: "1px solid rgba(255,255,255,0.06)",
+            paddingTop: "34px",
+          })}
+        >
+          <div>
+            <div style={sx({ fontSize: "12px", letterSpacing: ".18em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)", marginBottom: "12px" })}>
+              analysis stack
+            </div>
+            <div style={sx({ color: "rgba(255,255,255,0.48)", fontSize: "18px", lineHeight: 1.45 })}>
+              Built around the review loop: find the costly move, understand the position, then explore what changed.
+            </div>
+          </div>
+          <div
+            style={sx({
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: "22px",
+            })}
+          >
+            {landingFeatures.map((feature, index) => (
+              <article
+                key={feature.title}
+                className="landing-feature"
+                style={sx({
+                  "--landing-row-delay": `${index * 90}ms`,
+                  borderTop: "1px solid rgba(255,255,255,0.08)",
+                  paddingTop: "16px",
+                  display: "grid",
+                  gap: "9px",
+                })}
+              >
+                <span style={sx({ color: "rgba(255,255,255,0.28)", fontSize: "10px", letterSpacing: ".16em", textTransform: "uppercase" })}>
+                  {feature.kicker}
+                </span>
+                <h2 style={sx({ margin: 0, color: "#fff", fontSize: "20px", fontWeight: 250 })}>{feature.title}</h2>
+                <p style={sx({ margin: 0, color: "rgba(255,255,255,0.45)", fontSize: "15px", lineHeight: 1.55 })}>{feature.body}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      </main>
+    </AppShell>
   );
 }
 
@@ -4668,8 +5005,8 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
 }
 
 export default function App() {
-  const [view, setView] = useState("dash");
   const [account, setAccount] = useState(readStoredAccount);
+  const [view, setView] = useState(() => initialViewForAccount(readStoredAccount()));
   const [dashboard, setDashboard] = useState(createEmptyDashboard);
   const [collapsedSections, setCollapsedSections] = useState(createCollapsedSections);
   const [dashboardSummary, setDashboardSummary] = useState(createDashboardSummary);
@@ -4694,6 +5031,28 @@ export default function App() {
     );
   }, [account]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const handlePopState = () => {
+      setView(initialViewForAccount(readStoredAccount()));
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const nextPath = pathForView(view);
+    const nextUrl = `${nextPath}${window.location.search}${window.location.hash}`;
+
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, "", nextUrl);
+    }
+  }, [view]);
+
   function handleLogout() {
     setAccount(createEmptyAccount());
     setDashboard(createEmptyDashboard());
@@ -4705,7 +5064,11 @@ export default function App() {
     setDashboardLoading(false);
     setBillingNotice("");
     setDashboardReloadKey((current) => current + 1);
-    setView("dash");
+    setView("landing");
+  }
+
+  function homeView() {
+    return account.username ? "dash" : "landing";
   }
 
   useEffect(() => {
@@ -4883,6 +5246,18 @@ export default function App() {
   ]);
 
   useEffect(() => {
+    if (view !== "dash" || !["completed", "failed"].includes(account.importStatus)) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setDashboardReloadKey((current) => current + 1);
+    }, 900);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [view, account.importStatus]);
+
+  useEffect(() => {
     if (view !== "loading" || !account.username || !account.platform) {
       return undefined;
     }
@@ -5028,10 +5403,21 @@ export default function App() {
     }
   }
 
+  if (view === "landing") {
+    return (
+      <LandingPage
+        account={account}
+        onSignUp={() => setView("signup")}
+        onLogin={() => setView("login")}
+        onDashboard={() => setView("dash")}
+      />
+    );
+  }
+
   if (view === "signup") {
     return (
       <SignUpPage
-        onBack={() => setView("dash")}
+        onBack={() => setView(homeView())}
         onRegistered={(user) => {
           const nextAccount = {
             ...createEmptyAccount(),
@@ -5044,6 +5430,8 @@ export default function App() {
 
           setAccount(nextAccount);
           setCollapsedSections(createCollapsedSections());
+          setDashboardReloadKey((current) => current + 1);
+          setView("dash");
 
           if (typeof window !== "undefined") {
             window.localStorage.setItem(
@@ -5066,7 +5454,8 @@ export default function App() {
             isPremium: importRecord.plan === "pro",
           });
           setCollapsedSections(createCollapsedSections());
-          setView("loading");
+          setDashboardReloadKey((current) => current + 1);
+          setView("dash");
         }}
       />
     );
@@ -5075,7 +5464,7 @@ export default function App() {
   if (view === "login") {
     return (
       <LoginPage
-        onBack={() => setView("dash")}
+        onBack={() => setView(homeView())}
         onLoggedIn={(user) => {
           setAccount({
             ...createEmptyAccount(),
@@ -5099,7 +5488,7 @@ export default function App() {
         account={account}
         onMinimize={() => {
           setDashboardReloadKey((current) => current + 1);
-          setView("dash");
+          setView(homeView());
         }}
       />
     );
@@ -5110,7 +5499,7 @@ export default function App() {
       <AccountPage
         account={account}
         summary={dashboardSummary}
-        onBack={() => setView("dash")}
+        onBack={() => setView(homeView())}
         onLogout={handleLogout}
         onSignUp={() => setView("signup")}
         onUpgrade={() => setView("upgrade")}
@@ -5130,7 +5519,7 @@ export default function App() {
     return (
       <UpgradePage
         account={account}
-        onBack={() => setView("dash")}
+        onBack={() => setView(homeView())}
         onUpgraded={(user) => {
           if (user) {
             setAccount((current) => ({
@@ -5150,7 +5539,7 @@ export default function App() {
     return (
       <ImportPage
         account={account}
-        onBack={() => setView("dash")}
+        onBack={() => setView(homeView())}
         onImported={({ importRecord }) => {
           setAccount((current) => ({
             ...current,
@@ -5178,6 +5567,17 @@ export default function App() {
     );
   }
 
+  if (!account.username) {
+    return (
+      <LandingPage
+        account={account}
+        onSignUp={() => setView("signup")}
+        onLogin={() => setView("login")}
+        onDashboard={() => setView("dash")}
+      />
+    );
+  }
+
   const issueCount = Object.values(dashboard).flat().length;
   const hasAnyData = issueCount > 0;
 
@@ -5187,7 +5587,7 @@ export default function App() {
       account={account}
       onAccount={() => setView("account")}
       onBack={() => setView("dash")}
-      onHome={() => setView("dash")}
+      onHome={() => setView(homeView())}
       onLogout={handleLogout}
     >
       <div
