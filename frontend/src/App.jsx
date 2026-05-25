@@ -170,10 +170,13 @@ function readStoredAccount() {
 function initialViewForAccount(account) {
   if (typeof window === "undefined") return account.username ? "dash" : "landing";
 
+  if (window.location.pathname === "/analysis") return "sandbox";
   return window.location.pathname === "/dashboard" && account.username ? "dash" : "landing";
 }
 
 function pathForView(view) {
+  if (view === "sandbox") return "/analysis";
+
   return ["dash", "loading", "account", "upgrade", "import", "analysis"].includes(view)
     ? "/dashboard"
     : "/";
@@ -288,6 +291,447 @@ function parseFenBoard(fen) {
   });
 }
 
+const STARTING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+const BROWSER_ANALYSIS_STORAGE_KEY = "blunder.browserAnalysis";
+const CLASSIFICATION_MOVETIME_MS = 2000;
+
+function fenParts(fen) {
+  const [placement, turn = "w", castling = "-", enPassant = "-", halfmove = "0", fullmove = "1"] = String(fen || STARTING_FEN).trim().split(/\s+/);
+  const board = parseFenBoard(placement || STARTING_FEN.split(" ")[0]);
+
+  if (board.length !== 8 || board.some((row) => row.length !== 8)) {
+    throw new Error("FEN board must contain 8 ranks and 8 files.");
+  }
+
+  if (!["w", "b"].includes(turn)) {
+    throw new Error("FEN side to move must be w or b.");
+  }
+
+  return {
+    board,
+    turn,
+    castling,
+    enPassant,
+    halfmove: Number.parseInt(halfmove, 10) || 0,
+    fullmove: Number.parseInt(fullmove, 10) || 1,
+  };
+}
+
+function boardToPlacement(board) {
+  return board.map((row) => {
+    let empty = 0;
+    let output = "";
+
+    for (const piece of row) {
+      if (!piece) {
+        empty += 1;
+      } else {
+        if (empty) output += String(empty);
+        output += piece;
+        empty = 0;
+      }
+    }
+
+    return output + (empty ? String(empty) : "");
+  }).join("/");
+}
+
+function stateToFen(state) {
+  return [
+    boardToPlacement(state.board),
+    state.turn,
+    state.castling || "-",
+    state.enPassant || "-",
+    String(state.halfmove ?? 0),
+    String(state.fullmove ?? 1),
+  ].join(" ");
+}
+
+function cloneBoard(board) {
+  return board.map((row) => [...row]);
+}
+
+function pieceSide(piece) {
+  if (!piece) return "";
+  return piece === piece.toUpperCase() ? "w" : "b";
+}
+
+function oppositeSide(side) {
+  return side === "w" ? "b" : "w";
+}
+
+function squareFromIndexes(row, column) {
+  return row >= 0 && row <= 7 && column >= 0 && column <= 7 ? squareName(row, column) : "-";
+}
+
+function indexesFromSquare(square) {
+  const indexes = squareIndexes(square);
+  return indexes ? { row: indexes.row, column: indexes.column } : null;
+}
+
+function isPathClear(board, from, to) {
+  const rowStep = Math.sign(to.row - from.row);
+  const columnStep = Math.sign(to.column - from.column);
+  let row = from.row + rowStep;
+  let column = from.column + columnStep;
+
+  while (row !== to.row || column !== to.column) {
+    if (board[row]?.[column]) return false;
+    row += rowStep;
+    column += columnStep;
+  }
+
+  return true;
+}
+
+function isSquareAttacked(board, row, column, bySide) {
+  const pawnDirection = bySide === "w" ? -1 : 1;
+  for (const offset of [-1, 1]) {
+    const pawn = board[row - pawnDirection]?.[column + offset];
+    if (pawn && pieceSide(pawn) === bySide && pawn.toLowerCase() === "p") return true;
+  }
+
+  for (const [rowOffset, columnOffset] of [[-2, -1], [-2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2], [2, -1], [2, 1]]) {
+    const knight = board[row + rowOffset]?.[column + columnOffset];
+    if (knight && pieceSide(knight) === bySide && knight.toLowerCase() === "n") return true;
+  }
+
+  const rays = [
+    [-1, 0, "rq"],
+    [1, 0, "rq"],
+    [0, -1, "rq"],
+    [0, 1, "rq"],
+    [-1, -1, "bq"],
+    [-1, 1, "bq"],
+    [1, -1, "bq"],
+    [1, 1, "bq"],
+  ];
+
+  for (const [rowStep, columnStep, attackers] of rays) {
+    let cursorRow = row + rowStep;
+    let cursorColumn = column + columnStep;
+
+    while (cursorRow >= 0 && cursorRow <= 7 && cursorColumn >= 0 && cursorColumn <= 7) {
+      const piece = board[cursorRow][cursorColumn];
+
+      if (piece) {
+        if (pieceSide(piece) === bySide && attackers.includes(piece.toLowerCase())) return true;
+        break;
+      }
+
+      cursorRow += rowStep;
+      cursorColumn += columnStep;
+    }
+  }
+
+  for (let rowOffset = -1; rowOffset <= 1; rowOffset += 1) {
+    for (let columnOffset = -1; columnOffset <= 1; columnOffset += 1) {
+      if (rowOffset === 0 && columnOffset === 0) continue;
+      const king = board[row + rowOffset]?.[column + columnOffset];
+      if (king && pieceSide(king) === bySide && king.toLowerCase() === "k") return true;
+    }
+  }
+
+  return false;
+}
+
+function kingSquare(board, side) {
+  const target = side === "w" ? "K" : "k";
+
+  for (let row = 0; row < 8; row += 1) {
+    for (let column = 0; column < 8; column += 1) {
+      if (board[row][column] === target) return { row, column };
+    }
+  }
+
+  return null;
+}
+
+function isKingInCheck(board, side) {
+  const king = kingSquare(board, side);
+  return king ? isSquareAttacked(board, king.row, king.column, oppositeSide(side)) : false;
+}
+
+function moveCastlingRights(castling, piece, from, capturedPiece, to) {
+  let rights = castling === "-" ? "" : castling;
+  const remove = (flag) => {
+    rights = rights.replace(flag, "");
+  };
+
+  if (piece === "K") {
+    remove("K");
+    remove("Q");
+  } else if (piece === "k") {
+    remove("k");
+    remove("q");
+  }
+
+  if (from === "h1" || to === "h1" || capturedPiece && to === "h1") remove("K");
+  if (from === "a1" || to === "a1" || capturedPiece && to === "a1") remove("Q");
+  if (from === "h8" || to === "h8" || capturedPiece && to === "h8") remove("k");
+  if (from === "a8" || to === "a8" || capturedPiece && to === "a8") remove("q");
+
+  return rights || "-";
+}
+
+function localMoveLabel({ piece, from, to, capturedPiece, enPassantCapture, castleSide, promotion, check }) {
+  if (castleSide) return `${castleSide === "king" ? "O-O" : "O-O-O"}${check ? "+" : ""}`;
+
+  const pieceName = piece.toLowerCase() === "p" ? "" : piece.toUpperCase();
+  const capture = capturedPiece || enPassantCapture ? "x" : "";
+  const pawnFile = !pieceName && capture ? from[0] : "";
+  const promotionLabel = promotion ? `=${promotion.toUpperCase()}` : "";
+  return `${pieceName}${pawnFile}${capture}${to}${promotionLabel}${check ? "+" : ""}`;
+}
+
+function buildLocalMove(fen, { from, to, promotion = "q" }) {
+  const state = fenParts(fen);
+  const fromIndexes = indexesFromSquare(from);
+  const toIndexes = indexesFromSquare(to);
+
+  if (!fromIndexes || !toIndexes || from === to) {
+    throw new Error("Choose a source and target square.");
+  }
+
+  const piece = state.board[fromIndexes.row]?.[fromIndexes.column] || "";
+  const capturedPiece = state.board[toIndexes.row]?.[toIndexes.column] || "";
+  const side = pieceSide(piece);
+
+  if (!piece) throw new Error("There is no piece on that square.");
+  if (side !== state.turn) throw new Error(`${state.turn === "w" ? "White" : "Black"} to move.`);
+  if (capturedPiece && pieceSide(capturedPiece) === side) throw new Error("That square is occupied by your own piece.");
+
+  const pieceKind = piece.toLowerCase();
+  const rowDelta = toIndexes.row - fromIndexes.row;
+  const columnDelta = toIndexes.column - fromIndexes.column;
+  const absRow = Math.abs(rowDelta);
+  const absColumn = Math.abs(columnDelta);
+  const direction = side === "w" ? -1 : 1;
+  let enPassantCapture = "";
+  let castleSide = "";
+
+  if (pieceKind === "p") {
+    const startRow = side === "w" ? 6 : 1;
+    const oneForward = columnDelta === 0 && rowDelta === direction && !capturedPiece;
+    const twoForward = columnDelta === 0
+      && fromIndexes.row === startRow
+      && rowDelta === direction * 2
+      && !capturedPiece
+      && !state.board[fromIndexes.row + direction][fromIndexes.column];
+    const diagonalCapture = absColumn === 1 && rowDelta === direction && capturedPiece && pieceSide(capturedPiece) !== side;
+    const enPassant = absColumn === 1 && rowDelta === direction && state.enPassant === to && !capturedPiece;
+
+    if (!oneForward && !twoForward && !diagonalCapture && !enPassant) {
+      throw new Error("That pawn move is not legal.");
+    }
+
+    if (enPassant) {
+      enPassantCapture = state.board[fromIndexes.row][toIndexes.column] || "";
+    }
+  } else if (pieceKind === "n") {
+    if (!((absRow === 2 && absColumn === 1) || (absRow === 1 && absColumn === 2))) {
+      throw new Error("That knight move is not legal.");
+    }
+  } else if (pieceKind === "b") {
+    if (absRow !== absColumn || !isPathClear(state.board, fromIndexes, toIndexes)) {
+      throw new Error("That bishop move is not legal.");
+    }
+  } else if (pieceKind === "r") {
+    if ((rowDelta !== 0 && columnDelta !== 0) || !isPathClear(state.board, fromIndexes, toIndexes)) {
+      throw new Error("That rook move is not legal.");
+    }
+  } else if (pieceKind === "q") {
+    if (!((absRow === absColumn || rowDelta === 0 || columnDelta === 0) && isPathClear(state.board, fromIndexes, toIndexes))) {
+      throw new Error("That queen move is not legal.");
+    }
+  } else if (pieceKind === "k") {
+    const castlingAttempt = rowDelta === 0 && absColumn === 2;
+
+    if (castlingAttempt) {
+      const isKingSide = columnDelta > 0;
+      const right = side === "w" ? (isKingSide ? "K" : "Q") : (isKingSide ? "k" : "q");
+      const homeRow = side === "w" ? 7 : 0;
+      const emptyColumns = isKingSide ? [5, 6] : [1, 2, 3];
+      const passColumns = isKingSide ? [4, 5, 6] : [4, 3, 2];
+
+      if (fromIndexes.row !== homeRow || fromIndexes.column !== 4 || !state.castling.includes(right)) {
+        throw new Error("Castling is not available.");
+      }
+
+      if (emptyColumns.some((column) => state.board[homeRow][column])) {
+        throw new Error("Castling path is blocked.");
+      }
+
+      if (passColumns.some((column) => isSquareAttacked(state.board, homeRow, column, oppositeSide(side)))) {
+        throw new Error("Castling through check is not legal.");
+      }
+
+      castleSide = isKingSide ? "king" : "queen";
+    } else if (Math.max(absRow, absColumn) !== 1) {
+      throw new Error("That king move is not legal.");
+    }
+  }
+
+  const nextBoard = cloneBoard(state.board);
+  nextBoard[fromIndexes.row][fromIndexes.column] = "";
+  let placedPiece = piece;
+  const promotionRank = side === "w" ? 0 : 7;
+  const isPromotion = pieceKind === "p" && toIndexes.row === promotionRank;
+
+  if (isPromotion) {
+    placedPiece = side === "w" ? promotion.toUpperCase() : promotion.toLowerCase();
+  }
+
+  if (enPassantCapture) {
+    nextBoard[fromIndexes.row][toIndexes.column] = "";
+  }
+
+  nextBoard[toIndexes.row][toIndexes.column] = placedPiece;
+
+  if (castleSide) {
+    const row = side === "w" ? 7 : 0;
+    if (castleSide === "king") {
+      nextBoard[row][7] = "";
+      nextBoard[row][5] = side === "w" ? "R" : "r";
+    } else {
+      nextBoard[row][0] = "";
+      nextBoard[row][3] = side === "w" ? "R" : "r";
+    }
+  }
+
+  if (isKingInCheck(nextBoard, side)) {
+    throw new Error("That move leaves your king in check.");
+  }
+
+  const nextTurn = oppositeSide(side);
+  const nextState = {
+    board: nextBoard,
+    turn: nextTurn,
+    castling: moveCastlingRights(state.castling, piece, from, capturedPiece || enPassantCapture, to),
+    enPassant: pieceKind === "p" && Math.abs(rowDelta) === 2
+      ? squareFromIndexes(fromIndexes.row + direction, fromIndexes.column)
+      : "-",
+    halfmove: pieceKind === "p" || capturedPiece || enPassantCapture ? 0 : state.halfmove + 1,
+    fullmove: side === "b" ? state.fullmove + 1 : state.fullmove,
+  };
+  const check = isKingInCheck(nextBoard, nextTurn);
+  const san = localMoveLabel({
+    piece: pieceKind === "p" ? "p" : pieceKind.toUpperCase(),
+    from,
+    to,
+    capturedPiece,
+    enPassantCapture,
+    castleSide,
+    promotion: isPromotion ? promotion : "",
+    check,
+  });
+
+  return {
+    from,
+    to,
+    uci: `${from}${to}${isPromotion ? promotion : ""}`,
+    san,
+    fenBefore: stateToFen(state),
+    fenAfter: stateToFen(nextState),
+    evaluationAfter: 0,
+  };
+}
+
+function readBrowserAnalysisSession() {
+  if (typeof window === "undefined") {
+    return {
+      rootFen: STARTING_FEN,
+      fen: STARTING_FEN,
+      moves: [],
+    };
+  }
+
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(BROWSER_ANALYSIS_STORAGE_KEY) || "{}");
+    const rootFen = stored.rootFen || STARTING_FEN;
+    const fen = stored.fen || rootFen;
+
+    fenParts(rootFen);
+    fenParts(fen);
+
+    return {
+      rootFen,
+      fen,
+      moves: Array.isArray(stored.moves) ? stored.moves : [],
+    };
+  } catch {
+    return {
+      rootFen: STARTING_FEN,
+      fen: STARTING_FEN,
+      moves: [],
+    };
+  }
+}
+
+function fenTurn(fen) {
+  return String(fen || "").trim().split(/\s+/)[1] === "b" ? "b" : "w";
+}
+
+function playerEvaluationFromWhite(whiteEvaluation, side) {
+  return side === "w" ? whiteEvaluation : -whiteEvaluation;
+}
+
+function cloudLineEvaluation(line) {
+  if (!line) return 0;
+  if (line.mate !== null && line.mate !== undefined) {
+    return line.mate > 0 ? 9000 : -9000;
+  }
+
+  return Number(line.evaluation || 0);
+}
+
+function classifyCpLoss(cpLoss) {
+  if (cpLoss < 20) return "best";
+  if (cpLoss < 50) return "good";
+  if (cpLoss < 100) return "inaccuracy";
+  if (cpLoss < 450) return "mistake";
+  if (cpLoss < 900) return "blunder";
+  return "miss";
+}
+
+async function evaluateFenWithCloudStockfish(fen) {
+  const params = new URLSearchParams({
+    fen,
+    limit: "1",
+    movetime: String(CLASSIFICATION_MOVETIME_MS),
+  });
+  const response = await fetch(apiUrl(`/api/analysis/lines?${params.toString()}`));
+  const payload = await response.json();
+
+  if (!response.ok) {
+    throw new Error(payload.error || "unable to evaluate position");
+  }
+
+  return payload.lines?.[0] || { evaluation: 0, mate: null, depth: 0, pv: [] };
+}
+
+async function classifyMoveWithCloudStockfish(move) {
+  const [before, after] = await Promise.all([
+    evaluateFenWithCloudStockfish(move.fenBefore),
+    evaluateFenWithCloudStockfish(move.fenAfter),
+  ]);
+  const side = fenTurn(move.fenBefore);
+  const evaluationBefore = cloudLineEvaluation(before);
+  const evaluationAfter = cloudLineEvaluation(after);
+  const playerEvaluationBefore = playerEvaluationFromWhite(evaluationBefore, side);
+  const playerEvaluationAfter = playerEvaluationFromWhite(evaluationAfter, side);
+  const cpLoss = Math.max(0, playerEvaluationBefore - playerEvaluationAfter);
+
+  return {
+    classification: classifyCpLoss(cpLoss),
+    cpLoss,
+    evaluationBefore,
+    evaluationAfter,
+    depth: Math.min(before.depth || 0, after.depth || 0),
+    classifiedAt: new Date().toISOString(),
+  };
+}
+
 function formatClassification(label) {
   return label.replace(/^\w/, (char) => char.toUpperCase());
 }
@@ -400,9 +844,11 @@ function variationAnnotationFromMove(move, basePly, index) {
     fen_after: move.fenAfter,
     from_square: move.from,
     to_square: move.to,
-    classification: "best",
-    cp_loss: 0,
+    classification: move.classification || "analysis",
+    evaluation_before: move.evaluationBefore ?? 0,
     evaluation_after: move.evaluation_after ?? move.evaluationAfter ?? 0,
+    evaluation_loss: move.cpLoss ?? 0,
+    cp_loss: move.cpLoss ?? 0,
     game_phase: "analysis",
   };
 }
@@ -941,6 +1387,7 @@ function Board({
   interactive = true,
   onMove = null,
   isMoveBusy = false,
+  showMoveBadge = true,
   autoArrows = [],
   autoCircles = [],
 }) {
@@ -1254,7 +1701,7 @@ function Board({
           <img src={pieceImages[dragMove.piece]} alt="" draggable="false" />
         </div>
       ) : null}
-      {!isExploringLine && badgeSquare ? (
+      {showMoveBadge && badgeSquare ? (
         <div
           style={sx({
             position: "absolute",
@@ -1959,10 +2406,12 @@ function StockfishLinesPanel({
 
   useEffect(() => {
     if (!fen) {
+      onEvaluationChangeRef.current?.(null, fen);
       return undefined;
     }
 
     const controller = new AbortController();
+    onEvaluationChangeRef.current?.(null, fen);
     const loadingTimer = window.setTimeout(() => {
       setState((current) => ({
         status: "loading",
@@ -1991,12 +2440,12 @@ function StockfishLinesPanel({
           lines: payload.lines || [],
           error: "",
         });
-        onEvaluationChangeRef.current?.(payload.lines?.[0]?.evaluation ?? null);
+        onEvaluationChangeRef.current?.(payload.lines?.[0]?.evaluation ?? null, fen);
       })
       .catch((error) => {
         if (error.name === "AbortError") return;
         setState({ status: "error", depth: 0, lines: [], error: error.message || "unable to evaluate position" });
-        onEvaluationChangeRef.current?.(null);
+        onEvaluationChangeRef.current?.(null, fen);
       });
 
     return () => {
@@ -2266,6 +2715,9 @@ function AnalysisMovesPanel({
     ? formatVariationMoveLabel(activeVariationMove, variationBasePly, activeVariationIndex)
     : formatMoveLabel(currentAnnotation);
   const variationLine = variationMoves.length ? formatVariationLine(variationMoves, variationBasePly) : "";
+  const activeVariationClassification = activeVariationMove?.classification || "analysis";
+  const activeVariationStatus = activeVariationMove?.classificationStatus || "";
+  const activeVariationIcon = classificationIcons[activeVariationClassification];
 
   return (
     <div style={sx({ display: "grid", gap: "14px" })}>
@@ -2285,7 +2737,28 @@ function AnalysisMovesPanel({
           <span style={sx({ display: "flex", gap: "12px", flexWrap: "wrap", color: "rgba(255,255,255,0.38)", fontSize: "12px" })}>
             {activeVariationMove ? (
               <>
-                <span>analysis line</span>
+                <span>
+                  {activeVariationIcon && activeVariationStatus !== "classifying" && activeVariationStatus !== "failed" ? (
+                    <img
+                      src={activeVariationIcon}
+                      alt=""
+                      draggable="false"
+                      style={sx({
+                        width: "14px",
+                        height: "14px",
+                        objectFit: "contain",
+                        marginRight: "5px",
+                        verticalAlign: "-2px",
+                      })}
+                    />
+                  ) : null}
+                  {activeVariationStatus === "classifying"
+                    ? "classifying"
+                    : activeVariationStatus === "failed"
+                      ? "classification failed"
+                    : formatClassification(activeVariationClassification)}
+                </span>
+                <span>loss {((activeVariationMove.cpLoss ?? 0) / 100).toFixed(2)}</span>
                 <span>{variationMoves.length} move{variationMoves.length === 1 ? "" : "s"}</span>
               </>
             ) : (
@@ -3064,12 +3537,6 @@ const landingFeatures = [
   },
 ];
 
-const landingSignals = [
-  ["input", "online games"],
-  ["signal", "classification + cp loss"],
-  ["review", "board, clock, opening"],
-];
-
 function LandingPreview() {
   const previewFen = "r1bq1rk1/ppp2ppp/2nbpn2/3p4/3P4/2PBPN2/PP3PPP/RNBQ1RK1 w - - 0 8";
   const previewRows = [
@@ -3164,39 +3631,11 @@ function LandingPreview() {
         </div>
       </div>
 
-      <div
-        style={sx({
-          display: "grid",
-          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-          gap: "12px",
-          paddingTop: "4px",
-        })}
-      >
-        {landingSignals.map(([label, value], index) => (
-          <div
-            key={label}
-            className="landing-signal"
-            style={sx({
-              "--landing-row-delay": `${360 + index * 90}ms`,
-              display: "grid",
-              gap: "7px",
-              minWidth: 0,
-            })}
-          >
-            <span style={sx({ fontSize: "10px", letterSpacing: ".14em", textTransform: "uppercase", color: "rgba(255,255,255,0.24)" })}>
-              {label}
-            </span>
-            <span style={sx({ fontSize: "13px", color: "rgba(255,255,255,0.58)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" })}>
-              {value}
-            </span>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
 
-function LandingPage({ account, onSignUp, onLogin, onDashboard }) {
+function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis }) {
   const hasAccount = !!account?.username;
 
   return (
@@ -3234,7 +3673,7 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard }) {
                 maxWidth: "720px",
               })}
             >
-              blunder.ch
+              Don't lose the same way twice.
             </h1>
             <p
               className="landing-copy"
@@ -3271,7 +3710,7 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard }) {
               </button>
               <button
                 type="button"
-                onClick={hasAccount ? onDashboard : onLogin}
+                onClick={onAnalysis}
                 className="landing-action is-secondary"
                 style={sx({
                   border: "1px solid rgba(255,255,255,0.1)",
@@ -3287,8 +3726,32 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard }) {
                   cursor: "pointer",
                 })}
               >
-                {hasAccount ? account.username : "log in"}
+                board analysis
               </button>
+              {!hasAccount ? (
+                <button
+                  type="button"
+                  onClick={onLogin}
+                  style={sx({
+                    border: "none",
+                    borderBottom: "1px solid rgba(255,255,255,0.14)",
+                    background: "transparent",
+                    color: "rgba(255,255,255,0.4)",
+                    minHeight: "34px",
+                    padding: "6px 0",
+                    fontFamily: "inherit",
+                    fontSize: "13px",
+                    letterSpacing: ".08em",
+                    textTransform: "uppercase",
+                    cursor: "pointer",
+                  })}
+                >
+                  log in
+                </button>
+              ) : null}
+              {hasAccount ? (
+                <span style={sx({ color: "rgba(255,255,255,0.28)", fontSize: "13px" })}>{account.username}</span>
+              ) : null}
             </div>
           </div>
           <LandingPreview />
@@ -4706,6 +5169,401 @@ function OpeningDatabasePanel({ fen, embedded = false }) {
   );
 }
 
+function localAnnotationFromMove(move, basePly, index, evaluationAfter = 0) {
+  const ply = basePly + index + 1;
+
+  return {
+    ply,
+    move_index: Math.ceil(ply / 2),
+    san: move.san || move.uci,
+    fen_before: move.fenBefore,
+    fen_after: move.fenAfter,
+    from_square: move.from,
+    to_square: move.to,
+    classification: move.classification || "analysis",
+    evaluation_before: move.evaluationBefore ?? 0,
+    evaluation_after: move.evaluationAfter ?? evaluationAfter,
+    evaluation_loss: 0,
+    cp_loss: move.cpLoss ?? 0,
+    game_phase: "analysis",
+  };
+}
+
+function StandaloneMoveList({ annotations, activePly, onSelectPly }) {
+  const rows = groupAnnotationsByMove(annotations);
+
+  return (
+    <div className="analysis-move-list" style={sx({ display: "grid", gap: "1px", maxHeight: "360px", overflowY: "auto", scrollbarWidth: "none", msOverflowStyle: "none" })}>
+      {rows.length ? rows.map((row) => (
+        <div
+          key={row.moveIndex}
+          style={sx({
+            display: "grid",
+            gridTemplateColumns: "34px minmax(0, 1fr) minmax(0, 1fr)",
+            gap: "5px",
+            alignItems: "center",
+            borderBottom: "1px solid rgba(255,255,255,0.04)",
+            padding: "2px 0",
+          })}
+        >
+          <span style={sx({ fontSize: "11px", color: "rgba(255,255,255,0.2)", letterSpacing: ".08em", paddingLeft: "3px" })}>
+            {row.moveIndex}.
+          </span>
+          <MoveListCell annotation={row.white} activePly={activePly} onSelectPly={onSelectPly} />
+          <MoveListCell annotation={row.black} activePly={activePly} onSelectPly={onSelectPly} />
+        </div>
+      )) : (
+        <div style={sx({ color: "rgba(255,255,255,0.26)", fontSize: "13px", padding: "12px 0" })}>
+          Make a move on the board to start a line.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BrowserAnalysisPage({ onHome }) {
+  const initialSessionRef = useRef(null);
+  if (!initialSessionRef.current) {
+    initialSessionRef.current = readBrowserAnalysisSession();
+  }
+
+  const [rootFen, setRootFen] = useState(initialSessionRef.current.rootFen);
+  const [fen, setFen] = useState(initialSessionRef.current.fen);
+  const [fenDraft, setFenDraft] = useState(initialSessionRef.current.fen);
+  const [moves, setMoves] = useState(initialSessionRef.current.moves);
+  const [selectedPly, setSelectedPly] = useState(null);
+  const [error, setError] = useState("");
+  const [liveEvaluation, setLiveEvaluation] = useState({ fen: "", value: null });
+  const [variationStatus, setVariationStatus] = useState("idle");
+  const [classificationStatus, setClassificationStatus] = useState("");
+  const basePly = useMemo(() => basePlyFromFen(rootFen), [rootFen]);
+  const annotations = useMemo(() => moves.map((move, index) => localAnnotationFromMove(move, basePly, index)), [moves, basePly]);
+  const activeAnnotation = annotations.find((annotation) => annotation.ply === selectedPly)
+    || annotations.at(-1)
+    || {
+      ply: basePly,
+      move_index: Math.max(1, Math.ceil(Math.max(1, basePly) / 2)),
+      san: "position",
+      fen_before: fen,
+      fen_after: fen,
+      from_square: "",
+      to_square: "",
+      classification: "analysis",
+      evaluation_before: 0,
+      evaluation_after: 0,
+      evaluation_loss: 0,
+      cp_loss: 0,
+      game_phase: "analysis",
+    };
+  const displayedFen = activeAnnotation.fen_after || fen;
+  const displayedMoveCount = Math.max(0, Math.min(moves.length, (activeAnnotation.ply || basePly) - basePly));
+  const isLatestPosition = displayedMoveCount === moves.length;
+  const liveEvaluationValue = liveEvaluation.fen === displayedFen ? liveEvaluation.value : null;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    window.localStorage.setItem(
+      BROWSER_ANALYSIS_STORAGE_KEY,
+      JSON.stringify({
+        rootFen,
+        fen,
+        moves,
+      })
+    );
+  }, [rootFen, fen, moves]);
+
+  async function classifyMoveAtIndex(index, move) {
+    setClassificationStatus(`Classifying ${move.san || move.uci} with 2-second Stockfish evals.`);
+
+    try {
+      const result = await classifyMoveWithCloudStockfish(move);
+      setMoves((current) => current.map((item, itemIndex) => (
+        itemIndex === index && item.uci === move.uci && item.fenBefore === move.fenBefore
+          ? {
+            ...item,
+            classification: result.classification,
+            classificationStatus: "classified",
+            cpLoss: result.cpLoss,
+            evaluationBefore: result.evaluationBefore,
+            evaluationAfter: result.evaluationAfter,
+            classifiedAt: result.classifiedAt,
+          }
+          : item
+      )));
+      setClassificationStatus(`${move.san || move.uci}: ${formatClassification(result.classification)} / ${(result.cpLoss / 100).toFixed(2)} pawns`);
+    } catch (classificationError) {
+      setMoves((current) => current.map((item, itemIndex) => (
+        itemIndex === index && item.uci === move.uci && item.fenBefore === move.fenBefore
+          ? { ...item, classificationStatus: "failed", classificationError: classificationError.message || "classification failed" }
+          : item
+      )));
+      setClassificationStatus(classificationError.message || "Classification failed.");
+    }
+  }
+
+  function applyMove(move) {
+    const moveIndex = moves.length;
+    const pendingMove = {
+      ...move,
+      classification: "analysis",
+      classificationStatus: "classifying",
+    };
+
+    setMoves((current) => [...current, pendingMove]);
+    setFen(move.fenAfter);
+    setFenDraft(move.fenAfter);
+    setSelectedPly(basePly + moveIndex + 1);
+    setLiveEvaluation({ fen: "", value: null });
+    setError("");
+    classifyMoveAtIndex(moveIndex, pendingMove);
+  }
+
+  function handleBoardMove({ from, to }) {
+    try {
+      const move = buildLocalMove(fen, { from, to });
+      applyMove(move);
+    } catch (moveError) {
+      setError(moveError.message || "Illegal move.");
+    }
+  }
+
+  function handleLoadFen() {
+    try {
+      const state = fenParts(fenDraft);
+      const nextFen = stateToFen(state);
+      setRootFen(nextFen);
+      setFen(nextFen);
+      setFenDraft(nextFen);
+      setMoves([]);
+      setSelectedPly(null);
+      setLiveEvaluation({ fen: "", value: null });
+      setClassificationStatus("");
+      setError("");
+    } catch (fenError) {
+      setError(fenError.message || "Invalid FEN.");
+    }
+  }
+
+  function handleReset() {
+    setRootFen(STARTING_FEN);
+    setFen(STARTING_FEN);
+    setFenDraft(STARTING_FEN);
+    setMoves([]);
+    setSelectedPly(null);
+    setLiveEvaluation({ fen: "", value: null });
+    setClassificationStatus("");
+    setError("");
+  }
+
+  function handleUndo() {
+    setMoves((current) => {
+      const nextMoves = current.slice(0, -1);
+      const nextFen = nextMoves.at(-1)?.fenAfter || rootFen;
+      setFen(nextFen);
+      setFenDraft(nextFen);
+      setSelectedPly(nextMoves.length ? basePly + nextMoves.length : null);
+      setLiveEvaluation({ fen: "", value: null });
+      setClassificationStatus("");
+      setError("");
+      return nextMoves;
+    });
+  }
+
+  function handleSelectPly(ply) {
+    setSelectedPly(ply);
+    setLiveEvaluation({ fen: "", value: null });
+  }
+
+  function handleEvaluationChange(value, evaluatedFen) {
+    const nextEvaluation = Number(value);
+    setLiveEvaluation({
+      fen: evaluatedFen || displayedFen,
+      value: Number.isFinite(nextEvaluation) ? nextEvaluation : null,
+    });
+  }
+
+  async function handlePlayEngineLine(line, moveIndex) {
+    const uciMoves = (line?.pv || []).slice(0, moveIndex + 1);
+    if (!uciMoves.length || variationStatus === "loading") return;
+
+    setVariationStatus("loading");
+    setError("");
+
+    try {
+      let cursorFen = displayedFen;
+      const nextMoves = [];
+
+      for (const uci of uciMoves) {
+        const move = buildLocalMove(cursorFen, {
+          from: uci.slice(0, 2),
+          to: uci.slice(2, 4),
+          promotion: uci[4] || "q",
+        });
+        nextMoves.push(move);
+        cursorFen = move.fenAfter;
+      }
+
+      const pendingMoves = nextMoves.map((move) => ({
+        ...move,
+        classification: "analysis",
+        classificationStatus: "classifying",
+      }));
+
+      setMoves((current) => [...current.slice(0, displayedMoveCount), ...pendingMoves]);
+      setFen(cursorFen);
+      setFenDraft(cursorFen);
+      setSelectedPly(basePly + displayedMoveCount + pendingMoves.length);
+      setLiveEvaluation({ fen: "", value: null });
+      pendingMoves.forEach((move, index) => {
+        classifyMoveAtIndex(displayedMoveCount + index, move);
+      });
+    } catch (lineError) {
+      setError(lineError.message || "Unable to play engine line.");
+    } finally {
+      setVariationStatus("idle");
+    }
+  }
+
+  return (
+    <AppShell view="analysis-board" onHome={onHome}>
+      <div
+        style={sx({
+          maxWidth: "1340px",
+          display: "grid",
+          gridTemplateColumns: "minmax(300px, 360px) minmax(420px, 620px) minmax(300px, 360px)",
+          gap: "28px",
+          alignItems: "start",
+        })}
+      >
+        <aside style={sx({ display: "grid", gap: "22px", borderRight: "1px solid rgba(255,255,255,0.06)", paddingRight: "22px" })}>
+          <div>
+            <div style={sx({ fontSize: "11px", letterSpacing: ".16em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)", marginBottom: "10px" })}>
+              standalone board
+            </div>
+            <h1 style={sx({ margin: 0, fontSize: "32px", color: "#fff", fontWeight: 200 })}>Analysis board</h1>
+          </div>
+
+          <label style={sx({ display: "grid", gap: "9px" })}>
+            <span style={sx({ fontSize: "11px", letterSpacing: ".14em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)" })}>
+              FEN
+            </span>
+            <textarea
+              value={fenDraft}
+              onChange={(event) => setFenDraft(event.target.value)}
+              spellCheck="false"
+              rows={4}
+              style={sx({
+                width: "100%",
+                resize: "vertical",
+                minHeight: "88px",
+                background: "rgba(255,255,255,0.025)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                color: "rgba(255,255,255,0.72)",
+                fontSize: "12px",
+                lineHeight: 1.45,
+                padding: "10px",
+                outline: "none",
+                fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+              })}
+            />
+          </label>
+
+          <div style={sx({ display: "flex", gap: "10px", flexWrap: "wrap" })}>
+            {[
+              ["load", handleLoadFen],
+              ["undo", handleUndo],
+              ["reset", handleReset],
+            ].map(([label, handler]) => (
+              <button
+                key={label}
+                type="button"
+                onClick={handler}
+                style={sx({
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  background: label === "load" ? "rgba(255,255,255,0.08)" : "transparent",
+                  color: label === "load" ? "#fff" : "rgba(255,255,255,0.46)",
+                  cursor: "pointer",
+                  fontSize: "12px",
+                  letterSpacing: ".08em",
+                  textTransform: "uppercase",
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  fontFamily: "inherit",
+                })}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {error ? (
+            <div style={sx({ color: "#d7aaa6", fontSize: "13px", lineHeight: 1.4 })}>{error}</div>
+          ) : (
+            <div style={sx({ color: "rgba(255,255,255,0.32)", fontSize: "13px", lineHeight: 1.45 })}>
+              Frontend only. No import, preprocessing, or server-saved analysis.
+            </div>
+          )}
+
+          {classificationStatus ? (
+            <div style={sx({
+              color: "rgba(255,255,255,0.48)",
+              borderTop: "1px solid rgba(255,255,255,0.06)",
+              paddingTop: "14px",
+              fontSize: "13px",
+              lineHeight: 1.45,
+            })}>
+              {classificationStatus}
+            </div>
+          ) : null}
+        </aside>
+
+        <main style={sx({ display: "grid", gap: "14px", justifyItems: "stretch" })}>
+          <div style={sx({ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "16px" })}>
+            <span style={sx({ color: "rgba(255,255,255,0.42)", fontSize: "13px" })}>
+              {fenParts(displayedFen).turn === "w" ? "white" : "black"} to move
+            </span>
+            <span style={sx({ color: "rgba(255,255,255,0.24)", fontSize: "12px", letterSpacing: ".1em", textTransform: "uppercase" })}>
+              {moves.length} move{moves.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          <div style={sx({ display: "grid", gridTemplateColumns: "minmax(0, 620px) 30px", gap: "8px", alignItems: "stretch" })}>
+            <Board
+              fen={displayedFen}
+              annotation={activeAnnotation}
+              maxWidth="620px"
+              interactive={isLatestPosition}
+              onMove={isLatestPosition ? handleBoardMove : null}
+              isMoveBusy={variationStatus === "loading"}
+            />
+            <CurrentEvalBar annotation={activeAnnotation} evaluationOverride={liveEvaluationValue} />
+          </div>
+        </main>
+
+        <aside style={sx({ display: "grid", gap: "18px", borderLeft: "1px solid rgba(255,255,255,0.06)", paddingLeft: "22px" })}>
+          <StockfishLinesPanel
+            fen={displayedFen}
+            onPlayLineMove={handlePlayEngineLine}
+            onEvaluationChange={handleEvaluationChange}
+            isApplyingVariation={variationStatus === "loading"}
+          />
+
+          <div>
+            <div style={sx({ fontSize: "11px", letterSpacing: ".14em", textTransform: "uppercase", color: "rgba(255,255,255,0.22)", marginBottom: "10px" })}>
+              line
+            </div>
+            <StandaloneMoveList
+              annotations={annotations}
+              activePly={activeAnnotation.ply}
+              onSelectPly={handleSelectPly}
+            />
+          </div>
+        </aside>
+      </div>
+    </AppShell>
+  );
+}
+
 function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
   const [linePreview, setLinePreview] = useState(null);
   const [analysisTab, setAnalysisTab] = useState("overview");
@@ -4769,6 +5627,31 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
     return payload;
   }
 
+  async function classifyVariationMoveAtIndex(index, move) {
+    try {
+      const result = await classifyMoveWithCloudStockfish(move);
+      setVariationMoves((current) => current.map((item, itemIndex) => (
+        itemIndex === index && item.uci === move.uci && item.fenBefore === move.fenBefore
+          ? {
+            ...item,
+            classification: result.classification,
+            classificationStatus: "classified",
+            cpLoss: result.cpLoss,
+            evaluationBefore: result.evaluationBefore,
+            evaluationAfter: result.evaluationAfter,
+            classifiedAt: result.classifiedAt,
+          }
+          : item
+      )));
+    } catch (error) {
+      setVariationMoves((current) => current.map((item, itemIndex) => (
+        itemIndex === index && item.uci === move.uci && item.fenBefore === move.fenBefore
+          ? { ...item, classificationStatus: "failed", classificationError: error.message || "classification failed" }
+          : item
+      )));
+    }
+  }
+
   async function handleBoardMove({ from, to }) {
     if (!activeAnalysisFen || variationStatus === "loading") return;
 
@@ -4779,8 +5662,17 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
 
     try {
       const move = await requestAnalysisMove({ fen: activeAnalysisFen, from, to });
-      setVariationMoves((current) => [...current, { ...move, source: "board" }]);
+      const moveIndex = variationMoves.length;
+      const pendingMove = {
+        ...move,
+        source: "board",
+        classification: "analysis",
+        classificationStatus: "classifying",
+      };
+
+      setVariationMoves((current) => [...current, pendingMove]);
       setAnalysisTab("moves");
+      classifyVariationMoveAtIndex(moveIndex, pendingMove);
     } catch (error) {
       setVariationError(error.message || "move is illegal");
     } finally {
@@ -4803,12 +5695,21 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
 
       for (const uci of uciMoves) {
         const move = await requestAnalysisMove({ fen: cursorFen, uci });
-        nextMoves.push({ ...move, source: "engine" });
+        nextMoves.push({
+          ...move,
+          source: "engine",
+          classification: "analysis",
+          classificationStatus: "classifying",
+        });
         cursorFen = move.fenAfter;
       }
 
+      const startIndex = variationMoves.length;
       setVariationMoves((current) => [...current, ...nextMoves]);
       setAnalysisTab("moves");
+      nextMoves.forEach((move, index) => {
+        classifyVariationMoveAtIndex(startIndex + index, move);
+      });
     } catch (error) {
       setVariationError(error.message || "unable to play engine line");
     } finally {
@@ -4823,6 +5724,11 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
   }
 
   function handleEvaluationChange(value) {
+    if (value === null || value === undefined) {
+      setLiveEvaluation(null);
+      return;
+    }
+
     const nextEvaluation = Number(value);
     setLiveEvaluation(Number.isFinite(nextEvaluation) ? nextEvaluation : null);
   }
@@ -4960,6 +5866,7 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
               interactive={!summaryBoardFocus}
               onMove={summaryBoardFocus ? null : handleBoardMove}
               isMoveBusy={variationStatus === "loading"}
+              showMoveBadge={!linePreview && !summaryBoardFocus}
               autoArrows={summaryBoardFocus?.arrows || []}
               autoCircles={summaryBoardFocus?.circles || []}
             />
@@ -5410,6 +6317,15 @@ export default function App() {
         onSignUp={() => setView("signup")}
         onLogin={() => setView("login")}
         onDashboard={() => setView("dash")}
+        onAnalysis={() => setView("sandbox")}
+      />
+    );
+  }
+
+  if (view === "sandbox") {
+    return (
+      <BrowserAnalysisPage
+        onHome={() => setView(homeView())}
       />
     );
   }
@@ -5574,6 +6490,7 @@ export default function App() {
         onSignUp={() => setView("signup")}
         onLogin={() => setView("login")}
         onDashboard={() => setView("dash")}
+        onAnalysis={() => setView("sandbox")}
       />
     );
   }

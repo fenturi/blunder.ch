@@ -81,6 +81,10 @@ analysisRouter.get("/lines", async (req, res, next) => {
     const fen = String(req.query.fen || "").trim();
     const limit = Math.max(1, Math.min(5, Number.parseInt(req.query.limit || "2", 10) || 2));
     const depth = Math.max(1, Math.min(24, Number.parseInt(req.query.depth || String(config.engineDepth), 10) || config.engineDepth));
+    const requestedMovetime = Number.parseInt(req.query.movetime || "", 10);
+    const movetime = Number.isFinite(requestedMovetime) && requestedMovetime > 0
+      ? Math.max(250, Math.min(10000, requestedMovetime))
+      : null;
 
     if (!fen) {
       return res.status(400).json({ error: "fen query parameter is required" });
@@ -92,11 +96,13 @@ analysisRouter.get("/lines", async (req, res, next) => {
       return res.status(400).json({ error: "fen query parameter is invalid" });
     }
 
-    const evaluation = await evaluateLines(fen, { multiPv: limit, depth });
+    const evaluation = await evaluateLines(fen, { multiPv: limit, depth, movetime });
+    const reportedDepth = Math.max(evaluation.depth || depth, ...evaluation.lines.map((line) => line.depth || 0));
 
     return res.json({
       fen,
-      depth: Math.max(...evaluation.lines.map((line) => line.depth), evaluation.depth || depth),
+      depth: reportedDepth,
+      movetime,
       lines: evaluation.lines.slice(0, limit).map((line) => normalizeLine(line, fen)),
     });
   } catch (error) {

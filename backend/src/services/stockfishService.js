@@ -90,11 +90,15 @@ function parseEvaluation(infoLines, bestMoveLine) {
   };
 }
 
-export async function createStockfishSession({ multiPv = 1, depth = config.engineDepth } = {}) {
+export async function createStockfishSession({ multiPv = 1, depth = config.engineDepth, movetime = null } = {}) {
   const engine = spawn(config.stockfishPath, [], { stdio: ["pipe", "pipe", "ignore"] });
   const reader = readline.createInterface({ input: engine.stdout });
   const boundedMultiPv = Math.max(1, Math.min(5, Number(multiPv) || 1));
   const boundedDepth = Math.max(1, Math.min(24, Number(depth) || config.engineDepth));
+  const boundedMovetime = movetime
+    ? Math.max(250, Math.min(10000, Number(movetime) || 0))
+    : null;
+  const searchTimeoutMs = boundedMovetime ? boundedMovetime + 7000 : 15000;
 
   engine.stdin.write("uci\n");
   await onceLine(reader, (line) => line === "uciok");
@@ -114,8 +118,8 @@ export async function createStockfishSession({ multiPv = 1, depth = config.engin
       reader.on("line", collect);
       try {
         engine.stdin.write(`position fen ${fen}\n`);
-        engine.stdin.write(`go depth ${boundedDepth}\n`);
-        const bestMoveLine = await onceLine(reader, (line) => line.startsWith("bestmove "));
+        engine.stdin.write(boundedMovetime ? `go movetime ${boundedMovetime}\n` : `go depth ${boundedDepth}\n`);
+        const bestMoveLine = await onceLine(reader, (line) => line.startsWith("bestmove "), searchTimeoutMs);
         return parseEvaluation(infoLines, bestMoveLine);
       } finally {
         reader.off("line", collect);
@@ -138,8 +142,8 @@ export async function evaluatePosition(fen) {
   }
 }
 
-export async function evaluateLines(fen, { multiPv = 3, depth = config.engineDepth } = {}) {
-  const session = await createStockfishSession({ multiPv, depth });
+export async function evaluateLines(fen, { multiPv = 3, depth = config.engineDepth, movetime = null } = {}) {
+  const session = await createStockfishSession({ multiPv, depth, movetime });
 
   try {
     return await session.evaluate(fen);

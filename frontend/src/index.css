@@ -396,8 +396,7 @@ html, body, #root {
 .landing-action,
 .landing-preview,
 .landing-feature,
-.landing-preview-row,
-.landing-signal {
+.landing-preview-row {
   animation: landingFadeUp 560ms cubic-bezier(.2, .8, .2, 1) both;
 }
 
@@ -458,7 +457,6 @@ html, body, #root {
 }
 
 .landing-preview-row,
-.landing-signal,
 .landing-feature {
   animation-delay: var(--landing-row-delay, 0ms);
 }
@@ -536,7 +534,6 @@ html, body, #root {
   .landing-preview,
   .landing-feature,
   .landing-preview-row,
-  .landing-signal,
   .landing-live-dot,
   .landing-board-frame,
   .landing-preview::after,
