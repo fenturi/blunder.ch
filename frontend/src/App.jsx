@@ -3309,7 +3309,7 @@ function AppShell({
           textTransform: "uppercase",
         })}
       >
-        <span>© {copyrightYear} blunder.ch. All rights reserved.</span>
+        <span>Copyright {copyrightYear} blunder.ch. All rights reserved.</span>
         <span>Proprietary software. Unauthorized copying prohibited.</span>
       </footer>
 
@@ -3537,6 +3537,45 @@ const landingFeatures = [
   },
 ];
 
+const landingPlans = [
+  {
+    id: "regular",
+    name: "Regular",
+    price: "$0",
+    cadence: "per month",
+    allowance: "1 game",
+    refill: "24:00 hours",
+    summary: "For trying the review loop on one recent game at a time.",
+    rows: [
+      ["Daily analysis", "1 game"],
+      ["Refill", "Full allowance after 24 hours"],
+      ["Checkout", "No payment required"],
+    ],
+    included: ["Game import", "Move classifications", "Board review", "Opening explorer"],
+  },
+  {
+    id: "pro",
+    name: "Pro",
+    price: "$9.99",
+    cadence: "per month",
+    allowance: "5 games",
+    refill: "24:00 hours",
+    summary: "For regular review sessions across a wider batch of games.",
+    rows: [
+      ["Daily analysis", "5 games"],
+      ["Refill", "Full allowance after 24 hours"],
+      ["Checkout", "Stripe subscription"],
+    ],
+    included: ["Everything in Regular", "5x daily allowance", "Premium account badge", "Priority review workflow"],
+  },
+];
+
+const landingAssurances = [
+  ["billing", "Pro checkout is hosted by Stripe and activates only after a paid session is confirmed."],
+  ["ownership", "Your imported games stay attached to your blunder.ch account and review workspace."],
+  ["sandbox", "The standalone board can analyse positions without importing or saving a game."],
+];
+
 function LandingPreview() {
   const previewFen = "r1bq1rk1/ppp2ppp/2nbpn2/3p4/3P4/2PBPN2/PP3PPP/RNBQ1RK1 w - - 0 8";
   const previewRows = [
@@ -3635,8 +3674,138 @@ function LandingPreview() {
   );
 }
 
-function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis }) {
+function LandingPlanCard({ plan, featured = false, onChoose, delay = 0 }) {
+  return (
+    <article
+      className={featured ? "landing-plan is-featured" : "landing-plan"}
+      style={sx({
+        "--landing-row-delay": `${delay}ms`,
+        display: "grid",
+        gap: "22px",
+        alignContent: "start",
+        minHeight: "100%",
+        border: featured ? "1px solid rgba(255,255,255,0.2)" : "1px solid rgba(255,255,255,0.08)",
+        borderRadius: "8px",
+        background: featured ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.018)",
+        padding: "24px",
+      })}
+    >
+      <div style={sx({ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "16px" })}>
+        <div>
+          <div style={sx({ fontSize: "12px", letterSpacing: ".18em", textTransform: "uppercase", color: "rgba(255,255,255,0.34)", marginBottom: "9px" })}>
+            {plan.name}
+          </div>
+          <div style={sx({ display: "flex", alignItems: "baseline", gap: "8px", color: "#fff" })}>
+            <span style={sx({ fontSize: "34px", fontWeight: 200, lineHeight: 1 })}>{plan.price}</span>
+            <span style={sx({ fontSize: "12px", color: "rgba(255,255,255,0.36)" })}>{plan.cadence}</span>
+          </div>
+        </div>
+        {featured ? (
+          <span style={sx({ color: "rgba(255,255,255,0.6)", fontSize: "10px", letterSpacing: ".14em", textTransform: "uppercase" })}>
+            popular
+          </span>
+        ) : null}
+      </div>
+
+      <p style={sx({ margin: 0, color: "rgba(255,255,255,0.5)", fontSize: "15px", lineHeight: 1.55 })}>
+        {plan.summary}
+      </p>
+
+      <div style={sx({ display: "grid", gap: "1px", borderTop: "1px solid rgba(255,255,255,0.07)", borderBottom: "1px solid rgba(255,255,255,0.07)" })}>
+        {plan.rows.map(([label, value]) => (
+          <div
+            key={label}
+            className="landing-plan-row"
+            style={sx({
+              display: "grid",
+              gridTemplateColumns: "128px minmax(0, 1fr)",
+              gap: "16px",
+              padding: "12px 0",
+              borderBottom: "1px solid rgba(255,255,255,0.045)",
+            })}
+          >
+            <span style={sx({ color: "rgba(255,255,255,0.28)", fontSize: "10px", letterSpacing: ".13em", textTransform: "uppercase" })}>
+              {label}
+            </span>
+            <span style={sx({ color: "rgba(255,255,255,0.68)", fontSize: "13px", minWidth: 0 })}>
+              {value}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div style={sx({ display: "grid", gap: "8px" })}>
+        {plan.included.map((item) => (
+          <div key={item} style={sx({ display: "flex", alignItems: "center", gap: "10px", color: "rgba(255,255,255,0.52)", fontSize: "13px" })}>
+            <span style={sx({ width: "5px", height: "5px", borderRadius: "50%", background: "rgba(255,255,255,0.48)", flex: "0 0 auto" })} />
+            <span>{item}</span>
+          </div>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        onClick={onChoose}
+        className="landing-action"
+        style={sx({
+          alignSelf: "end",
+          justifySelf: "start",
+          border: featured ? "1px solid rgba(255,255,255,0.24)" : "1px solid rgba(255,255,255,0.1)",
+          background: featured ? "rgba(255,255,255,0.12)" : "transparent",
+          color: featured ? "#fff" : "rgba(255,255,255,0.56)",
+          minHeight: "38px",
+          padding: "9px 13px",
+          borderRadius: "6px",
+          fontFamily: "inherit",
+          fontSize: "12px",
+          letterSpacing: ".08em",
+          textTransform: "uppercase",
+          cursor: "pointer",
+        })}
+      >
+        {plan.id === "pro" ? "choose pro" : "start regular"}
+      </button>
+    </article>
+  );
+}
+
+function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis, onUpgrade }) {
   const hasAccount = !!account?.username;
+  const chooseRegular = hasAccount ? onDashboard : onSignUp;
+  const choosePro = hasAccount ? (onUpgrade || onDashboard) : onSignUp;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const root = document.querySelector(".landing-page");
+    if (!root) return undefined;
+
+    const revealTargets = [...root.querySelectorAll(".landing-scroll-reveal")];
+    const reveal = (element) => element.classList.add("is-visible");
+    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+
+    if (prefersReducedMotion || !("IntersectionObserver" in window)) {
+      revealTargets.forEach(reveal);
+      return undefined;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          reveal(entry.target);
+          observer.unobserve(entry.target);
+        }
+      },
+      {
+        rootMargin: "0px 0px -12% 0px",
+        threshold: 0.18,
+      }
+    );
+
+    revealTargets.forEach((target) => observer.observe(target));
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <AppShell view="landing" onHome={() => {}}>
@@ -3758,7 +3927,77 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis }) {
         </section>
 
         <section
-          className="landing-detail-grid"
+          className="landing-pricing landing-scroll-reveal"
+          style={sx({
+            display: "grid",
+            gridTemplateColumns: "260px minmax(0, 1fr)",
+            gap: "44px",
+            borderTop: "1px solid rgba(255,255,255,0.06)",
+            paddingTop: "34px",
+          })}
+        >
+          <div>
+            <div style={sx({ fontSize: "12px", letterSpacing: ".18em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)", marginBottom: "12px" })}>
+              plans
+            </div>
+            <div style={sx({ color: "rgba(255,255,255,0.48)", fontSize: "18px", lineHeight: 1.45 })}>
+              Start with one game, or unlock a five-game daily review session with Pro.
+            </div>
+          </div>
+          <div
+            className="landing-stagger"
+            style={sx({
+              display: "grid",
+              gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+              gap: "18px",
+            })}
+          >
+            {landingPlans.map((plan, index) => (
+              <LandingPlanCard
+                key={plan.id}
+                plan={plan}
+                featured={plan.id === "pro"}
+                onChoose={plan.id === "pro" ? choosePro : chooseRegular}
+                delay={index * 100}
+              />
+            ))}
+          </div>
+        </section>
+
+        <section
+          className="landing-assurance landing-scroll-reveal"
+          style={sx({
+            display: "grid",
+            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+            gap: "22px",
+            borderTop: "1px solid rgba(255,255,255,0.06)",
+            paddingTop: "28px",
+          })}
+        >
+          {landingAssurances.map(([label, body], index) => (
+            <div
+              key={label}
+              className="landing-proof"
+              style={sx({
+                "--landing-row-delay": `${index * 90}ms`,
+                display: "grid",
+                gap: "9px",
+                borderTop: "1px solid rgba(255,255,255,0.075)",
+                paddingTop: "14px",
+              })}
+            >
+              <span style={sx({ color: "rgba(255,255,255,0.3)", fontSize: "10px", letterSpacing: ".16em", textTransform: "uppercase" })}>
+                {label}
+              </span>
+              <span style={sx({ color: "rgba(255,255,255,0.48)", fontSize: "14px", lineHeight: 1.55 })}>
+                {body}
+              </span>
+            </div>
+          ))}
+        </section>
+
+        <section
+          className="landing-detail-grid landing-scroll-reveal"
           style={sx({
             display: "grid",
             gridTemplateColumns: "260px minmax(0, 1fr)",
@@ -3776,6 +4015,7 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis }) {
             </div>
           </div>
           <div
+            className="landing-stagger"
             style={sx({
               display: "grid",
               gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
@@ -6318,6 +6558,7 @@ export default function App() {
         onLogin={() => setView("login")}
         onDashboard={() => setView("dash")}
         onAnalysis={() => setView("sandbox")}
+        onUpgrade={() => setView("upgrade")}
       />
     );
   }
@@ -6491,6 +6732,7 @@ export default function App() {
         onLogin={() => setView("login")}
         onDashboard={() => setView("dash")}
         onAnalysis={() => setView("sandbox")}
+        onUpgrade={() => setView("upgrade")}
       />
     );
   }

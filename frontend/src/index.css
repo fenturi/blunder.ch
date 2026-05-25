@@ -395,7 +395,6 @@ html, body, #root {
 .landing-copy,
 .landing-action,
 .landing-preview,
-.landing-feature,
 .landing-preview-row {
   animation: landingFadeUp 560ms cubic-bezier(.2, .8, .2, 1) both;
 }
@@ -456,9 +455,91 @@ html, body, #root {
   transform-origin: center;
 }
 
-.landing-preview-row,
-.landing-feature {
+.landing-preview-row {
   animation-delay: var(--landing-row-delay, 0ms);
+}
+
+.landing-scroll-reveal {
+  position: relative;
+  opacity: 0;
+  transform: translateY(38px);
+  filter: blur(10px);
+  transition:
+    opacity 720ms cubic-bezier(.2, .8, .2, 1),
+    transform 720ms cubic-bezier(.2, .8, .2, 1),
+    filter 720ms cubic-bezier(.2, .8, .2, 1);
+  will-change: opacity, transform, filter;
+}
+
+.landing-scroll-reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+}
+
+.landing-scroll-reveal .landing-feature,
+.landing-scroll-reveal .landing-plan,
+.landing-scroll-reveal .landing-proof {
+  opacity: 0;
+  transform: translateY(22px);
+  filter: blur(6px);
+  transition:
+    opacity 680ms cubic-bezier(.2, .8, .2, 1),
+    transform 680ms cubic-bezier(.2, .8, .2, 1),
+    filter 680ms cubic-bezier(.2, .8, .2, 1),
+    border-color 180ms ease,
+    background 180ms ease;
+  transition-delay: var(--landing-row-delay, 0ms);
+}
+
+.landing-scroll-reveal.is-visible .landing-feature,
+.landing-scroll-reveal.is-visible .landing-plan,
+.landing-scroll-reveal.is-visible .landing-proof {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+}
+
+.landing-scroll-reveal::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 1px;
+  width: 0;
+  background: rgba(255, 255, 255, 0.18);
+  transform: translateY(-35px);
+  transition: width 900ms cubic-bezier(.2, .8, .2, 1);
+  pointer-events: none;
+}
+
+.landing-scroll-reveal.is-visible::before {
+  width: min(220px, 34%);
+}
+
+.landing-plan {
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease;
+}
+
+.landing-plan:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.22) !important;
+  background: rgba(255, 255, 255, 0.045) !important;
+}
+
+.landing-scroll-reveal.is-visible .landing-plan:hover {
+  transform: translateY(-2px);
+}
+
+.landing-plan.is-featured:hover {
+  background: rgba(255, 255, 255, 0.075) !important;
+}
+
+.landing-plan-row:last-child {
+  border-bottom: none !important;
 }
 
 .landing-preview-row {
@@ -491,7 +572,9 @@ html, body, #root {
 
 @media (max-width: 980px) {
   .landing-hero,
-  .landing-detail-grid {
+  .landing-detail-grid,
+  .landing-pricing,
+  .landing-assurance {
     grid-template-columns: 1fr !important;
     gap: 36px !important;
   }
@@ -525,6 +608,16 @@ html, body, #root {
   .landing-preview > div:last-child {
     grid-template-columns: 1fr !important;
   }
+
+  .landing-pricing > div:last-child,
+  .landing-assurance {
+    grid-template-columns: 1fr !important;
+  }
+
+  .landing-plan-row {
+    grid-template-columns: 1fr !important;
+    gap: 6px !important;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -532,8 +625,12 @@ html, body, #root {
   .landing-copy,
   .landing-action,
   .landing-preview,
-  .landing-feature,
   .landing-preview-row,
+  .landing-scroll-reveal,
+  .landing-scroll-reveal .landing-feature,
+  .landing-scroll-reveal .landing-plan,
+  .landing-scroll-reveal .landing-proof,
+  .landing-scroll-reveal::before,
   .landing-live-dot,
   .landing-board-frame,
   .landing-preview::after,
