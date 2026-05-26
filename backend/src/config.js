@@ -90,6 +90,7 @@ export const config = {
   importConcurrency: integer("IMPORT_CONCURRENCY", "2"),
   analysisConcurrency: integer("ANALYSIS_CONCURRENCY", "1"),
   premiumRedeemCode: process.env.PREMIUM_REDEEM_CODE ?? "premium",
+  resetDatabaseCode: process.env.RESET_DATABASE_CODE ?? "",
   publicAppUrl: process.env.PUBLIC_APP_URL ?? "",
   stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? "",
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",

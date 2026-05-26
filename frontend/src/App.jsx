@@ -171,11 +171,13 @@ function initialViewForAccount(account) {
   if (typeof window === "undefined") return account.username ? "dash" : "landing";
 
   if (window.location.pathname === "/analysis") return "sandbox";
+  if (window.location.pathname === "/dev") return "dev";
   return window.location.pathname === "/dashboard" && account.username ? "dash" : "landing";
 }
 
 function pathForView(view) {
   if (view === "sandbox") return "/analysis";
+  if (view === "dev") return "/dev";
 
   return ["dash", "loading", "account", "upgrade", "import", "analysis"].includes(view)
     ? "/dashboard"
@@ -4198,6 +4200,163 @@ function LoginPage({ onBack, onLoggedIn }) {
   );
 }
 
+function DevResetPage({ onHome, onResetComplete }) {
+  const [code, setCode] = useState("");
+  const [status, setStatus] = useState("idle");
+  const [message, setMessage] = useState("");
+  const [checked, setChecked] = useState(false);
+  const canSubmit = checked && code.trim().length >= 32 && status !== "loading";
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    if (!canSubmit) return;
+
+    setStatus("loading");
+    setMessage("resetting database");
+
+    try {
+      const response = await fetch(apiUrl("/api/admin/reset-database"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ code }),
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error || "reset failed");
+      }
+
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem(ACCOUNT_STORAGE_KEY);
+        window.localStorage.removeItem(BROWSER_ANALYSIS_STORAGE_KEY);
+      }
+
+      setCode("");
+      setChecked(false);
+      setStatus("success");
+      setMessage("database reset complete");
+      onResetComplete?.();
+    } catch (error) {
+      setStatus("error");
+      setMessage(error.message || "reset failed");
+    }
+  }
+
+  const inputStyle = sx({
+    width: "100%",
+    background: "transparent",
+    border: "none",
+    borderBottom: "1px solid rgba(255,255,255,0.12)",
+    color: "#fff",
+    fontSize: "16px",
+    fontWeight: 200,
+    padding: "12px 0",
+    outline: "none",
+    fontFamily: "inherit",
+  });
+
+  return (
+    <AppShell view="dev" onHome={onHome}>
+      <main
+        style={sx({
+          maxWidth: "720px",
+          display: "grid",
+          gap: "32px",
+        })}
+      >
+        <div>
+          <div style={sx({ fontSize: "12px", letterSpacing: ".18em", textTransform: "uppercase", color: "rgba(255,255,255,0.26)", marginBottom: "14px" })}>
+            private dev panel
+          </div>
+          <h1 style={sx({ margin: 0, color: "#fff", fontSize: "42px", fontWeight: 200, lineHeight: 1.08 })}>
+            Reset production data
+          </h1>
+        </div>
+
+        <div
+          style={sx({
+            borderTop: "1px solid rgba(255,255,255,0.08)",
+            borderBottom: "1px solid rgba(255,255,255,0.08)",
+            padding: "22px 0",
+            display: "grid",
+            gap: "12px",
+            color: "rgba(255,255,255,0.48)",
+            fontSize: "14px",
+            lineHeight: 1.55,
+          })}
+        >
+          <span>This deletes users, imports, games, and move annotations.</span>
+          <span>It also clears the import and analysis queues.</span>
+          <span>Pause the Railway backend-worker before resetting, then restart it after.</span>
+          <span>Stripe subscriptions are not cancelled by this reset.</span>
+        </div>
+
+        <form onSubmit={handleSubmit} style={sx({ display: "grid", gap: "24px" })}>
+          <label style={sx({ display: "grid", gap: "10px" })}>
+            <span style={sx({ fontSize: "11px", letterSpacing: ".14em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)" })}>
+              reset code
+            </span>
+            <input
+              type="password"
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+              autoComplete="off"
+              spellCheck="false"
+              style={inputStyle}
+            />
+          </label>
+
+          <label style={sx({ display: "flex", alignItems: "flex-start", gap: "12px", color: "rgba(255,255,255,0.48)", fontSize: "14px", lineHeight: 1.45 })}>
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={(event) => setChecked(event.target.checked)}
+              style={sx({ marginTop: "3px", accentColor: "#fff" })}
+            />
+            <span>I understand this resets the live blunder.ch database.</span>
+          </label>
+
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            style={sx({
+              justifySelf: "start",
+              border: "1px solid rgba(255,255,255,0.14)",
+              background: canSubmit ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.025)",
+              color: canSubmit ? "#fff" : "rgba(255,255,255,0.26)",
+              cursor: canSubmit ? "pointer" : "default",
+              minHeight: "40px",
+              padding: "10px 14px",
+              borderRadius: "6px",
+              fontFamily: "inherit",
+              fontSize: "13px",
+              letterSpacing: ".1em",
+              textTransform: "uppercase",
+            })}
+          >
+            {status === "loading" ? "resetting" : "reset database"}
+          </button>
+
+          {message ? (
+            <div
+              style={sx({
+                color: status === "error" ? "#d7aaa6" : "rgba(255,255,255,0.48)",
+                fontSize: "13px",
+                letterSpacing: ".08em",
+                textTransform: "uppercase",
+              })}
+            >
+              {message}
+            </div>
+          ) : null}
+        </form>
+      </main>
+    </AppShell>
+  );
+}
+
 function LoadingPage({ account, onMinimize }) {
   const [quoteIndex, setQuoteIndex] = useState(0);
   const analysisTarget = Math.max(account.totalGames, account.importedGames);
@@ -6567,6 +6726,26 @@ export default function App() {
     return (
       <BrowserAnalysisPage
         onHome={() => setView(homeView())}
+      />
+    );
+  }
+
+  if (view === "dev") {
+    return (
+      <DevResetPage
+        onHome={() => setView(homeView())}
+        onResetComplete={() => {
+          setAccount(createEmptyAccount());
+          setDashboard(createEmptyDashboard());
+          setDashboardSummary(createDashboardSummary());
+          setCollapsedSections(createCollapsedSections());
+          setLatestGame(null);
+          setSelectedPly(null);
+          setDashboardError("");
+          setDashboardLoading(false);
+          setBillingNotice("");
+          setDashboardReloadKey((current) => current + 1);
+        }}
       />
     );
   }

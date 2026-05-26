@@ -17,6 +17,7 @@ Node.js backend for importing Chess.com and Lichess games, storing PGNs in Postg
 - `POST /api/billing/checkout-session` to create a Stripe Checkout upgrade
 - `POST /api/billing/webhook` to activate premium from Stripe events
 - `GET /api/games/:gameId` to view a processed game and its annotations
+- `POST /api/admin/reset-database` to reset production data when `RESET_DATABASE_CODE` is configured
 - PGN hashing to avoid duplicates
 - Background import and analysis workers
 - SQL schema migration
@@ -42,3 +43,5 @@ Node.js backend for importing Chess.com and Lichess games, storing PGNs in Postg
 - If `LLM_API_KEY` is empty, the pipeline still works and stores annotations without explanations.
 - Put the Stripe secret key in `STRIPE_SECRET_KEY`; never expose it in frontend code.
 - Set `STRIPE_WEBHOOK_SECRET` from the Stripe CLI or dashboard webhook endpoint for production billing.
+- Set `RESET_DATABASE_CODE` to a private 32+ character secret before using `/dev` to reset production data.
+- Pause the Railway worker before a production reset, then restart it after the database and queues are cleared.

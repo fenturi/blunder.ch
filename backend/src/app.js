@@ -1,5 +1,6 @@
 import express from "express";
 import { config } from "./config.js";
+import { adminRouter } from "./routes/admin.js";
 import { analysisRouter } from "./routes/analysis.js";
 import { billingRouter, billingWebhookRouter } from "./routes/billing.js";
 import { importsRouter } from "./routes/imports.js";
@@ -44,6 +45,7 @@ export function createApp() {
   app.use("/api/openings", openingsRouter);
   app.use("/api/users", usersRouter);
   app.use("/api/billing", billingRouter);
+  app.use("/api/admin", adminRouter);
 
   if (process.env.NODE_ENV !== "production") {
     app.use("/api/dev", devRouter);
