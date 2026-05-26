@@ -63,3 +63,23 @@ adminRouter.post("/reset-database", async (req, res, next) => {
     next(error);
   }
 });
+
+adminRouter.post("/stats", async (req, res, next) => {
+  try {
+    requireResetCode(req.body?.code);
+
+    const { rows } = await pool.query(`
+      select
+        count(*)::int as signed_up,
+        count(*) filter (where is_premium)::int as upgraded
+      from users
+    `);
+
+    return res.json({
+      signedUp: rows[0]?.signed_up ?? 0,
+      upgraded: rows[0]?.upgraded ?? 0,
+    });
+  } catch (error) {
+    next(error);
+  }
+});

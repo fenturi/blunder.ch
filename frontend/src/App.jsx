@@ -172,14 +172,16 @@ function initialViewForAccount(account) {
 
   if (window.location.pathname === "/analysis") return "sandbox";
   if (window.location.pathname === "/dev") return "dev";
+  if (window.location.pathname === "/pro") return "upgrade";
   return window.location.pathname === "/dashboard" && account.username ? "dash" : "landing";
 }
 
 function pathForView(view) {
   if (view === "sandbox") return "/analysis";
   if (view === "dev") return "/dev";
+  if (view === "upgrade") return "/pro";
 
-  return ["dash", "loading", "account", "upgrade", "import", "analysis"].includes(view)
+  return ["dash", "loading", "account", "import", "analysis"].includes(view)
     ? "/dashboard"
     : "/";
 }
@@ -3296,24 +3298,26 @@ function AppShell({
 
       {children}
 
-      <footer
-        style={sx({
-          marginTop: "76px",
-          paddingTop: "18px",
-          borderTop: "1px solid rgba(255,255,255,0.045)",
-          display: "flex",
-          justifyContent: "space-between",
-          gap: "18px",
-          flexWrap: "wrap",
-          color: "rgba(255,255,255,0.24)",
-          fontSize: "11px",
-          letterSpacing: ".12em",
-          textTransform: "uppercase",
-        })}
-      >
-        <span>Copyright {copyrightYear} blunder.ch. All rights reserved.</span>
-        <span>Proprietary software. Unauthorized copying prohibited.</span>
-      </footer>
+      {view === "signup" || view === "login" ? null : (
+        <footer
+          style={sx({
+            marginTop: "76px",
+            paddingTop: "18px",
+            borderTop: "1px solid rgba(255,255,255,0.045)",
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "18px",
+            flexWrap: "wrap",
+            color: "rgba(255,255,255,0.24)",
+            fontSize: "11px",
+            letterSpacing: ".12em",
+            textTransform: "uppercase",
+          })}
+        >
+          <span>Copyright {copyrightYear} blunder.ch. All rights reserved.</span>
+          <span>Proprietary software. Unauthorized copying prohibited.</span>
+        </footer>
+      )}
 
       {import.meta.env.DEV ? <DevPanel /> : null}
     </div>
@@ -3558,7 +3562,7 @@ const landingPlans = [
   {
     id: "pro",
     name: "Pro",
-    price: "$9.99",
+    price: "$4",
     cadence: "per month",
     allowance: "5 games",
     refill: "24:00 hours",
@@ -4205,7 +4209,38 @@ function DevResetPage({ onHome, onResetComplete }) {
   const [status, setStatus] = useState("idle");
   const [message, setMessage] = useState("");
   const [checked, setChecked] = useState(false);
+  const [stats, setStats] = useState(null);
   const canSubmit = checked && code.trim().length >= 32 && status !== "loading";
+  const canLoadStats = code.trim().length >= 32 && status !== "loading";
+
+  async function loadStats() {
+    if (!canLoadStats) return;
+
+    setStatus("loading");
+    setMessage("loading admin stats");
+
+    try {
+      const response = await fetch(apiUrl("/api/admin/stats"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ code }),
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error || "unable to load stats");
+      }
+
+      setStats(payload);
+      setStatus("success");
+      setMessage("stats loaded");
+    } catch (error) {
+      setStatus("error");
+      setMessage(error.message || "unable to load stats");
+    }
+  }
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -4235,6 +4270,7 @@ function DevResetPage({ onHome, onResetComplete }) {
 
       setCode("");
       setChecked(false);
+      setStats({ signedUp: 0, upgraded: 0 });
       setStatus("success");
       setMessage("database reset complete");
       onResetComplete?.();
@@ -4293,6 +4329,37 @@ function DevResetPage({ onHome, onResetComplete }) {
           <span>Stripe subscriptions are not cancelled by this reset.</span>
         </div>
 
+        <section
+          style={sx({
+            display: "grid",
+            gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+            gap: "14px",
+          })}
+        >
+          {[
+            ["signed up", stats?.signedUp],
+            ["upgraded", stats?.upgraded],
+          ].map(([label, value]) => (
+            <div
+              key={label}
+              style={sx({
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: "8px",
+                padding: "18px",
+                display: "grid",
+                gap: "8px",
+              })}
+            >
+              <span style={sx({ color: "rgba(255,255,255,0.3)", fontSize: "11px", letterSpacing: ".14em", textTransform: "uppercase" })}>
+                {label}
+              </span>
+              <span style={sx({ color: "#fff", fontSize: "32px", fontWeight: 200 })}>
+                {value ?? "-"}
+              </span>
+            </div>
+          ))}
+        </section>
+
         <form onSubmit={handleSubmit} style={sx({ display: "grid", gap: "24px" })}>
           <label style={sx({ display: "grid", gap: "10px" })}>
             <span style={sx({ fontSize: "11px", letterSpacing: ".14em", textTransform: "uppercase", color: "rgba(255,255,255,0.3)" })}>
@@ -4318,26 +4385,47 @@ function DevResetPage({ onHome, onResetComplete }) {
             <span>I understand this resets the live blunder.ch database.</span>
           </label>
 
-          <button
-            type="submit"
-            disabled={!canSubmit}
-            style={sx({
-              justifySelf: "start",
-              border: "1px solid rgba(255,255,255,0.14)",
-              background: canSubmit ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.025)",
-              color: canSubmit ? "#fff" : "rgba(255,255,255,0.26)",
-              cursor: canSubmit ? "pointer" : "default",
-              minHeight: "40px",
-              padding: "10px 14px",
-              borderRadius: "6px",
-              fontFamily: "inherit",
-              fontSize: "13px",
-              letterSpacing: ".1em",
-              textTransform: "uppercase",
-            })}
-          >
-            {status === "loading" ? "resetting" : "reset database"}
-          </button>
+          <div style={sx({ display: "flex", gap: "12px", flexWrap: "wrap" })}>
+            <button
+              type="button"
+              disabled={!canLoadStats}
+              onClick={loadStats}
+              style={sx({
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: canLoadStats ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.025)",
+                color: canLoadStats ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.26)",
+                cursor: canLoadStats ? "pointer" : "default",
+                minHeight: "40px",
+                padding: "10px 14px",
+                borderRadius: "6px",
+                fontFamily: "inherit",
+                fontSize: "13px",
+                letterSpacing: ".1em",
+                textTransform: "uppercase",
+              })}
+            >
+              load stats
+            </button>
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              style={sx({
+                border: "1px solid rgba(255,255,255,0.14)",
+                background: canSubmit ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.025)",
+                color: canSubmit ? "#fff" : "rgba(255,255,255,0.26)",
+                cursor: canSubmit ? "pointer" : "default",
+                minHeight: "40px",
+                padding: "10px 14px",
+                borderRadius: "6px",
+                fontFamily: "inherit",
+                fontSize: "13px",
+                letterSpacing: ".1em",
+                textTransform: "uppercase",
+              })}
+            >
+              {status === "loading" ? "resetting" : "reset database"}
+            </button>
+          </div>
 
           {message ? (
             <div
@@ -4963,7 +5051,7 @@ function UpgradePage({ account, onBack, onUpgraded }) {
           <div style={sx({ display: "grid", gap: "0" })}>
             <UpgradeMetric label="daily allowance" value="5 games" />
             <UpgradeMetric label="replenish" value="24:00 clock" />
-            <UpgradeMetric label="price" value="$9.99 / month" />
+            <UpgradeMetric label="price" value="$4 / month" />
           </div>
         </section>
 

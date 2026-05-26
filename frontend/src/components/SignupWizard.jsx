@@ -57,7 +57,7 @@ function textButtonStyle(disabled = false) {
 function PlanCard({ plan, selected, onSelect }) {
   const isPro = plan === "pro";
   const rows = isPro
-    ? [["Daily games", "5"], ["Replenish", "24:00 hours"], ["Price", "$9.99/month"]]
+    ? [["Daily games", "5"], ["Replenish", "24:00 hours"], ["Price", "$4/month"]]
     : [["Daily games", "1"], ["Replenish", "24:00 hours"], ["Price", "$0"]];
 
   return (
@@ -116,7 +116,7 @@ function Summary({ state }) {
       <strong style={{ color: "#fff", fontWeight: 250 }}>Confirm analysis</strong>
       <span>{state.provider} / {state.username}</span>
       <span>{gamesToday} game{gamesToday === 1 ? "" : "s"} today</span>
-      <span>{state.plan === "pro" ? "Pro, $9.99/month" : "Regular, $0/month"}</span>
+      <span>{state.plan === "pro" ? "Pro, $4/month" : "Regular, $0/month"}</span>
     </div>
   );
 }
@@ -139,7 +139,7 @@ export default function SignupWizard({ onImported, onRegistered }) {
     && state.password.length >= 8
     && state.password === state.confirmPassword;
   const platformValid = state.username.trim().length > 0;
-  const cost = state.plan === "pro" ? "$9.99/month" : "$0/month";
+  const cost = state.plan === "pro" ? "$4/month" : "$0/month";
 
   const stepTitle = useMemo(() => [
     "Account credentials",

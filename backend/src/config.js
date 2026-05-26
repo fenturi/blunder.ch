@@ -96,7 +96,7 @@ export const config = {
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
   stripePriceId: process.env.STRIPE_PRICE_ID ?? "",
   stripeCurrency: (process.env.STRIPE_CURRENCY ?? "usd").toLowerCase(),
-  stripeProAmountCents: integer("STRIPE_PRO_AMOUNT_CENTS", "999"),
+  stripeProAmountCents: integer("STRIPE_PRO_AMOUNT_CENTS", "400"),
   corsOrigins: withDomainAliases(configuredCorsOrigins),
   chessDotComUserAgent:
     process.env.CHESS_DOT_COM_USER_AGENT ?? "blunder.app/0.1 support@example.com",

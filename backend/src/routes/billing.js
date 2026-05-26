@@ -67,8 +67,8 @@ function checkoutSessionParams({ req, user, provider, username }) {
   const baseUrl = appBaseUrl(req);
   const params = new URLSearchParams({
     mode: "subscription",
-    success_url: `${baseUrl}/?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${baseUrl}/?checkout=cancelled`,
+    success_url: `${baseUrl}/pro?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${baseUrl}/pro?checkout=cancelled`,
     client_reference_id: `${provider}:${username.toLowerCase()}`,
     "metadata[provider]": provider,
     "metadata[username]": username.toLowerCase(),

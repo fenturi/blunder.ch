@@ -18,6 +18,8 @@ export default function DevPanel() {
   const [open, setOpen] = useState(false);
   const [users, setUsers] = useState([]);
   const [status, setStatus] = useState("");
+  const totalUsers = users.length;
+  const upgradedUsers = users.filter((user) => user.is_premium).length;
 
   async function loadUsers() {
     try {
@@ -132,6 +134,21 @@ export default function DevPanel() {
             <div style={{ color: "#ffc4c4", fontSize: "13px", marginBottom: "12px" }}>{status}</div>
           ) : null}
 
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "10px", marginBottom: "12px" }}>
+            <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: "6px", padding: "10px" }}>
+              <div style={{ color: "rgba(255,255,255,0.42)", fontSize: "11px", letterSpacing: ".08em", textTransform: "uppercase" }}>
+                Signed up
+              </div>
+              <div style={{ color: "#fff", fontSize: "24px", marginTop: "4px" }}>{totalUsers}</div>
+            </div>
+            <div style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: "6px", padding: "10px" }}>
+              <div style={{ color: "rgba(255,255,255,0.42)", fontSize: "11px", letterSpacing: ".08em", textTransform: "uppercase" }}>
+                Upgraded
+              </div>
+              <div style={{ color: "#fff", fontSize: "24px", marginTop: "4px" }}>{upgradedUsers}</div>
+            </div>
+          </div>
+
           <div style={{ display: "grid", gap: "8px" }}>
             {users.map((user) => (
               <div
@@ -151,7 +168,7 @@ export default function DevPanel() {
                     {user.provider}/{user.username}
                   </div>
                   <div style={{ color: "rgba(255,255,255,0.42)", fontSize: "12px", marginTop: "4px" }}>
-                    {user.import_count} imports / {user.game_count} games
+                    {user.is_premium ? "Pro" : "Free"} / {user.import_count} imports / {user.game_count} games
                   </div>
                 </div>
                 <button type="button" onClick={() => deleteUser(user)} style={buttonStyle(true)}>Delete</button>
