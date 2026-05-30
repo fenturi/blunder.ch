@@ -246,6 +246,64 @@ html, body, #root {
   }
 }
 
+.classification-placeholder {
+  position: relative;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.075);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.045);
+}
+
+.classification-placeholder::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    110deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.16) 46%,
+    transparent 72%
+  );
+  transform: translateX(-120%);
+  animation: classificationPlaceholderSweep 1.15s ease-in-out infinite;
+}
+
+@keyframes classificationPlaceholderSweep {
+  to {
+    transform: translateX(120%);
+  }
+}
+
+.classification-spinner {
+  position: relative;
+  border-radius: 50%;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.18) 0%,
+    rgba(255, 255, 255, 0.72) 34%,
+    rgba(255, 255, 255, 0.32) 66%,
+    rgba(255, 255, 255, 0.18) 100%
+  );
+  background-size: 220% 220%;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.34),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
+  animation: classificationGradientCycle 1.15s ease-in-out infinite;
+}
+
+@keyframes classificationGradientCycle {
+  0% {
+    background-position: 0% 0%;
+  }
+
+  50% {
+    background-position: 100% 100%;
+  }
+
+  100% {
+    background-position: 0% 0%;
+  }
+}
+
 .game-summary-reveal {
   animation: gameSummaryReveal 520ms cubic-bezier(.2, .8, .2, 1) both;
 }
@@ -479,7 +537,10 @@ html, body, #root {
 
 .landing-scroll-reveal .landing-feature,
 .landing-scroll-reveal .landing-plan,
-.landing-scroll-reveal .landing-proof {
+.landing-scroll-reveal .landing-proof,
+.landing-scroll-reveal .landing-community-label,
+.landing-scroll-reveal .landing-community-copy,
+.landing-scroll-reveal .landing-community-link {
   opacity: 0;
   transform: translateY(22px);
   filter: blur(6px);
@@ -494,7 +555,10 @@ html, body, #root {
 
 .landing-scroll-reveal.is-visible .landing-feature,
 .landing-scroll-reveal.is-visible .landing-plan,
-.landing-scroll-reveal.is-visible .landing-proof {
+.landing-scroll-reveal.is-visible .landing-proof,
+.landing-scroll-reveal.is-visible .landing-community-label,
+.landing-scroll-reveal.is-visible .landing-community-copy,
+.landing-scroll-reveal.is-visible .landing-community-link {
   opacity: 1;
   transform: translateY(0);
   filter: blur(0);
@@ -536,6 +600,21 @@ html, body, #root {
 
 .landing-plan.is-featured:hover {
   background: rgba(255, 255, 255, 0.075) !important;
+}
+
+.landing-community-link {
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.landing-community-link:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.3) !important;
+  background: rgba(255, 255, 255, 0.09) !important;
+  color: #fff !important;
 }
 
 .landing-popular-badge {
@@ -615,6 +694,7 @@ html, body, #root {
   .landing-detail-grid,
   .landing-pricing,
   .landing-assurance,
+  .landing-community,
   .landing-testimonial {
     grid-template-columns: 1fr !important;
     gap: 36px !important;
@@ -684,6 +764,9 @@ html, body, #root {
   .landing-scroll-reveal .landing-feature,
   .landing-scroll-reveal .landing-plan,
   .landing-scroll-reveal .landing-proof,
+  .landing-scroll-reveal .landing-community-label,
+  .landing-scroll-reveal .landing-community-copy,
+  .landing-scroll-reveal .landing-community-link,
   .landing-scroll-reveal::before,
   .landing-board-frame,
   .landing-preview::after,
@@ -691,6 +774,14 @@ html, body, #root {
     animation: none !important;
     transform: none !important;
     filter: none !important;
+  }
+
+  .classification-placeholder::after {
+    animation: none !important;
+  }
+
+  .classification-spinner {
+    animation: none !important;
   }
 
   .landing-eval-score {

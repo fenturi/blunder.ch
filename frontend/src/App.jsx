@@ -23,6 +23,8 @@ import { apiUrl } from "./lib/api.js";
 
 const UI_SCALE = 1.1;
 const ACCOUNT_STORAGE_KEY = "blunder.account";
+const DISCORD_INVITE_URL = "https://discord.gg/cgDt8EksRc";
+const LANDING_NAVIGATION_EVENT = "blunder:navigate-landing";
 const phases = ["Opening", "Middlegame", "Endgame"];
 const moveClassifications = ["book", "only", "best", "good", "inaccuracy", "mistake", "blunder", "miss"];
 const philosophyQuotes = [
@@ -700,6 +702,57 @@ function classifyCpLoss(cpLoss) {
   return "miss";
 }
 
+function isClassificationPending(annotationOrMove) {
+  return annotationOrMove?.classificationStatus === "classifying";
+}
+
+function ClassificationPlaceholder({ width = "76px", height = "18px" }) {
+  return (
+    <span
+      className="classification-placeholder"
+      aria-label="classification pending"
+      style={sx({
+        display: "inline-block",
+        width,
+        height,
+        borderRadius: "5px",
+        verticalAlign: "middle",
+      })}
+    />
+  );
+}
+
+function ClassificationSpinner({ size = "22px" }) {
+  return (
+    <span
+      className="classification-spinner"
+      aria-label="classification pending"
+      style={sx({
+        display: "inline-block",
+        width: size,
+        height: size,
+        verticalAlign: "middle",
+      })}
+    />
+  );
+}
+
+async function readJsonResponse(response) {
+  const text = await response.text();
+
+  if (!text.trim()) {
+    return response.ok ? {} : { error: `Request failed with status ${response.status}` };
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return response.ok
+      ? {}
+      : { error: `Request returned an invalid response (${response.status})` };
+  }
+}
+
 async function evaluateFenWithCloudStockfish(fen) {
   const params = new URLSearchParams({
     fen,
@@ -707,13 +760,49 @@ async function evaluateFenWithCloudStockfish(fen) {
     movetime: String(CLASSIFICATION_MOVETIME_MS),
   });
   const response = await fetch(apiUrl(`/api/analysis/lines?${params.toString()}`));
-  const payload = await response.json();
+  const payload = await readJsonResponse(response);
 
   if (!response.ok) {
     throw new Error(payload.error || "unable to evaluate position");
   }
 
   return payload.lines?.[0] || { evaluation: 0, mate: null, depth: 0, pv: [] };
+}
+
+async function getOpeningBookClassification({ fen, playedUci, moveNumber }) {
+  if (!fen || !playedUci || moveNumber > 12) return null;
+
+  try {
+    const params = new URLSearchParams({
+      fen,
+      source: "lichess",
+      limit: "1",
+      moves: "12",
+    });
+    const response = await fetch(apiUrl(`/api/openings/explorer?${params.toString()}`));
+    const payload = await readJsonResponse(response).catch(() => null);
+
+    if (!response.ok || !payload) return null;
+
+    const bookMoves = (payload.moves || []).filter((move) => move.uci);
+    const matchingMove = bookMoves.find((move) => (
+      move.uci.toLowerCase() === String(playedUci || "").toLowerCase()
+    ));
+
+    if (!matchingMove) return null;
+
+    return {
+      classification: bookMoves.length === 1 ? "only" : "book",
+      cpLoss: 0,
+      evaluationBefore: 0,
+      evaluationAfter: 0,
+      depth: 0,
+      bookMove: matchingMove,
+      classifiedAt: new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function classifyMoveWithCloudStockfish(move) {
@@ -851,6 +940,7 @@ function variationAnnotationFromMove(move, basePly, index) {
     from_square: move.from,
     to_square: move.to,
     classification: move.classification || "analysis",
+    classificationStatus: move.classificationStatus || "",
     evaluation_before: move.evaluationBefore ?? 0,
     evaluation_after: move.evaluation_after ?? move.evaluationAfter ?? 0,
     evaluation_loss: move.cpLoss ?? 0,
@@ -1410,6 +1500,7 @@ function Board({
   const animatedPiecesRef = useRef(animatedPieces);
   const files = ["a", "b", "c", "d", "e", "f", "g", "h"];
   const ranks = ["8", "7", "6", "5", "4", "3", "2", "1"];
+  const isPendingClassification = isClassificationPending(annotation);
   const displayClassification = visualClassification(annotation);
   const badgeSquare = squareIndexes(inferMoveTargetSquare(annotation));
   const badgeIcon = classificationIcons[displayClassification];
@@ -1720,7 +1811,20 @@ function Board({
             zIndex: 6,
           })}
         >
-          {badgeIcon ? (
+          {isPendingClassification ? (
+            <div
+              style={sx({
+                position: "absolute",
+                width: "32%",
+                height: "32%",
+                right: "6%",
+                top: "6%",
+              })}
+              title="Classifying"
+            >
+              <ClassificationSpinner size="100%" />
+            </div>
+          ) : badgeIcon ? (
             <img
               src={badgeIcon}
               alt={badgeTitle}
@@ -1872,9 +1976,12 @@ function MoveListCell({ annotation, activePly, onSelectPly }) {
   }
 
   const isActive = annotation.ply === activePly;
+  const isPending = isClassificationPending(annotation);
   const displayClassification = visualClassification(annotation);
   const classificationTitle = formatClassification(displayClassification);
-  const accent = displayClassification === "blunder"
+  const accent = isPending
+    ? "rgba(255,255,255,0.34)"
+    : displayClassification === "blunder"
     ? "rgba(255,255,255,0.78)"
     : displayClassification === "mistake"
       ? "rgba(255,255,255,0.62)"
@@ -1907,6 +2014,7 @@ function MoveListCell({ annotation, activePly, onSelectPly }) {
         <span style={sx({ fontSize: "13px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" })}>
           {annotation.san}
         </span>
+        {isPending ? <ClassificationSpinner size="12px" /> : null}
       </span>
     </button>
   );
@@ -2760,12 +2868,19 @@ function AnalysisMovesPanel({
                     />
                   ) : null}
                   {activeVariationStatus === "classifying"
-                    ? "classifying"
+                    ? <span style={sx({ display: "inline-flex", alignItems: "center", gap: "7px" })}>
+                      <ClassificationSpinner size="14px" />
+                      <ClassificationPlaceholder width="58px" height="13px" />
+                    </span>
                     : activeVariationStatus === "failed"
                       ? "classification failed"
                     : formatClassification(activeVariationClassification)}
                 </span>
-                <span>loss {((activeVariationMove.cpLoss ?? 0) / 100).toFixed(2)}</span>
+                <span>
+                  {activeVariationStatus === "classifying"
+                    ? <ClassificationPlaceholder width="54px" height="16px" />
+                    : `loss ${((activeVariationMove.cpLoss ?? 0) / 100).toFixed(2)}`}
+                </span>
                 <span>{variationMoves.length} move{variationMoves.length === 1 ? "" : "s"}</span>
               </>
             ) : (
@@ -3271,13 +3386,21 @@ function AppShell({
   onHome,
 }) {
   const copyrightYear = new Date().getFullYear();
+  function handleLogoClick() {
+    if (typeof window === "undefined") {
+      onHome?.();
+      return;
+    }
+
+    window.dispatchEvent(new CustomEvent(LANDING_NAVIGATION_EVENT));
+  }
 
   return (
     <div style={styles.app}>
       <div style={styles.header}>
         <button
           type="button"
-          onClick={onHome}
+          onClick={handleLogoClick}
           style={sx({
             ...styles.logo,
             background: "transparent",
@@ -3318,7 +3441,27 @@ function AppShell({
           })}
         >
           <span>Copyright {copyrightYear} blunder.ch. All rights reserved.</span>
-          <span>Proprietary software. Unauthorized copying prohibited.</span>
+          <span
+            style={sx({
+              display: "flex",
+              gap: "18px",
+              flexWrap: "wrap",
+            })}
+          >
+            <a
+              href={DISCORD_INVITE_URL}
+              target="_blank"
+              rel="noreferrer"
+              style={sx({
+                color: "rgba(255,255,255,0.34)",
+                textDecoration: "none",
+                borderBottom: "1px solid rgba(255,255,255,0.12)",
+              })}
+            >
+              join discord
+            </a>
+            <span>Proprietary software. Unauthorized copying prohibited.</span>
+          </span>
         </footer>
       )}
 
@@ -3999,7 +4142,7 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis, onUp
                   cursor: "pointer",
                 })}
               >
-                board analysis
+                sandbox
               </button>
               {!hasAccount ? (
                 <button
@@ -4160,6 +4303,69 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis, onUp
               </span>
             </div>
           ))}
+        </section>
+
+        <section
+          className="landing-community landing-scroll-reveal"
+          style={sx({
+            display: "grid",
+            gridTemplateColumns: "260px minmax(0, 1fr)",
+            gap: "44px",
+            borderTop: "1px solid rgba(255,255,255,0.06)",
+            borderBottom: "1px solid rgba(255,255,255,0.06)",
+            padding: "30px 0",
+          })}
+        >
+          <div
+            className="landing-community-label"
+            style={sx({
+              "--landing-row-delay": "0ms",
+              fontSize: "12px",
+              letterSpacing: ".18em",
+              textTransform: "uppercase",
+              color: "rgba(255,255,255,0.28)",
+            })}
+          >
+            community
+          </div>
+          <div
+            className="landing-community-copy"
+            style={sx({
+              "--landing-row-delay": "90ms",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: "22px",
+              flexWrap: "wrap",
+            })}
+          >
+            <p style={sx({ margin: 0, maxWidth: "620px", color: "rgba(255,255,255,0.52)", fontSize: "18px", lineHeight: 1.5 })}>
+              Talk through review habits, share suspicious positions, and help shape what blunder.ch becomes next.
+            </p>
+            <a
+              href={DISCORD_INVITE_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="landing-community-link"
+              style={sx({
+                "--landing-row-delay": "180ms",
+                color: "rgba(255,255,255,0.72)",
+                minHeight: "38px",
+                display: "inline-flex",
+                alignItems: "center",
+                border: "1px solid rgba(255,255,255,0.16)",
+                background: "rgba(255,255,255,0.045)",
+                borderRadius: "6px",
+                padding: "9px 13px",
+                fontSize: "12px",
+                letterSpacing: ".08em",
+                textTransform: "uppercase",
+                textDecoration: "none",
+              })}
+            >
+              join discord
+            </a>
+          </div>
         </section>
 
         <section
@@ -5882,6 +6088,7 @@ function localAnnotationFromMove(move, basePly, index, evaluationAfter = 0) {
     from_square: move.from,
     to_square: move.to,
     classification: move.classification || "analysis",
+    classificationStatus: move.classificationStatus || "",
     evaluation_before: move.evaluationBefore ?? 0,
     evaluation_after: move.evaluationAfter ?? evaluationAfter,
     evaluation_loss: 0,
@@ -5974,11 +6181,15 @@ function BrowserAnalysisPage({ onHome }) {
     );
   }, [rootFen, fen, moves]);
 
-  async function classifyMoveAtIndex(index, move) {
-    setClassificationStatus(`Classifying ${move.san || move.uci} with 2-second Stockfish evals.`);
+  async function classifyMoveAtIndex(index, move, moveNumber) {
+    setClassificationStatus(`Classifying ${move.san || move.uci}.`);
 
     try {
-      const result = await classifyMoveWithCloudStockfish(move);
+      const result = await getOpeningBookClassification({
+        fen: move.fenBefore,
+        playedUci: move.uci,
+        moveNumber,
+      }) || await classifyMoveWithCloudStockfish(move);
       setMoves((current) => current.map((item, itemIndex) => (
         itemIndex === index && item.uci === move.uci && item.fenBefore === move.fenBefore
           ? {
@@ -5988,6 +6199,7 @@ function BrowserAnalysisPage({ onHome }) {
             cpLoss: result.cpLoss,
             evaluationBefore: result.evaluationBefore,
             evaluationAfter: result.evaluationAfter,
+            bookMove: result.bookMove,
             classifiedAt: result.classifiedAt,
           }
           : item
@@ -6017,7 +6229,7 @@ function BrowserAnalysisPage({ onHome }) {
     setSelectedPly(basePly + moveIndex + 1);
     setLiveEvaluation({ fen: "", value: null });
     setError("");
-    classifyMoveAtIndex(moveIndex, pendingMove);
+    classifyMoveAtIndex(moveIndex, pendingMove, pendingMove.moveNumber || Math.ceil((basePly + moveIndex + 1) / 2));
   }
 
   function handleBoardMove({ from, to }) {
@@ -6117,7 +6329,8 @@ function BrowserAnalysisPage({ onHome }) {
       setSelectedPly(basePly + displayedMoveCount + pendingMoves.length);
       setLiveEvaluation({ fen: "", value: null });
       pendingMoves.forEach((move, index) => {
-        classifyMoveAtIndex(displayedMoveCount + index, move);
+        const ply = basePly + displayedMoveCount + index + 1;
+        classifyMoveAtIndex(displayedMoveCount + index, move, move.moveNumber || Math.ceil(ply / 2));
       });
     } catch (lineError) {
       setError(lineError.message || "Unable to play engine line.");
@@ -6319,7 +6532,7 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
       },
       body: JSON.stringify(body),
     });
-    const payload = await response.json();
+    const payload = await readJsonResponse(response);
 
     if (!response.ok) {
       throw new Error(payload.error || "move is illegal");
@@ -6642,12 +6855,19 @@ export default function App() {
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
 
+    const handleLandingNavigation = () => {
+      setView("landing");
+    };
     const handlePopState = () => {
       setView(initialViewForAccount(readStoredAccount()));
     };
 
+    window.addEventListener(LANDING_NAVIGATION_EVENT, handleLandingNavigation);
     window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener(LANDING_NAVIGATION_EVENT, handleLandingNavigation);
+      window.removeEventListener("popstate", handlePopState);
+    };
   }, []);
 
   useEffect(() => {
