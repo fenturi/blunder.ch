@@ -173,6 +173,7 @@ function initialViewForAccount(account) {
   if (window.location.pathname === "/analysis") return "sandbox";
   if (window.location.pathname === "/dev") return "dev";
   if (window.location.pathname === "/pro") return "upgrade";
+  if (window.location.pathname === "/import" && account.username) return "import";
   return window.location.pathname === "/dashboard" && account.username ? "dash" : "landing";
 }
 
@@ -180,8 +181,9 @@ function pathForView(view) {
   if (view === "sandbox") return "/analysis";
   if (view === "dev") return "/dev";
   if (view === "upgrade") return "/pro";
+  if (view === "import") return "/import";
 
-  return ["dash", "loading", "account", "import", "analysis"].includes(view)
+  return ["dash", "loading", "account", "analysis"].includes(view)
     ? "/dashboard"
     : "/";
 }
@@ -1392,6 +1394,7 @@ function Board({
   onMove = null,
   isMoveBusy = false,
   showMoveBadge = true,
+  showCoordinates = true,
   autoArrows = [],
   autoCircles = [],
 }) {
@@ -1640,7 +1643,7 @@ function Board({
                 userSelect: "none",
               })}
             >
-              {columnIndex === 0 ? (
+              {showCoordinates && columnIndex === 0 ? (
                 <span
                   style={sx({
                     position: "absolute",
@@ -1655,7 +1658,7 @@ function Board({
                 </span>
               ) : null}
 
-              {rowIndex === 7 ? (
+              {showCoordinates && rowIndex === 7 ? (
                 <span
                   style={sx({
                     position: "absolute",
@@ -1872,9 +1875,9 @@ function MoveListCell({ annotation, activePly, onSelectPly }) {
   const displayClassification = visualClassification(annotation);
   const classificationTitle = formatClassification(displayClassification);
   const accent = displayClassification === "blunder"
-    ? "#f0d8d8"
+    ? "rgba(255,255,255,0.78)"
     : displayClassification === "mistake"
-      ? "#e4dfcf"
+      ? "rgba(255,255,255,0.62)"
       : displayClassification === "inaccuracy"
         ? "rgba(255,255,255,0.52)"
         : "rgba(255,255,255,0.38)";
@@ -2159,7 +2162,7 @@ function GameSummaryPanel({ game, account, onSelectPly, onBoardFocus }) {
           style={sx({
             fontSize: "16px",
             lineHeight: 1.5,
-            color: note.classification ? "rgba(255,220,190,0.82)" : "rgba(255,255,255,0.66)",
+            color: note.classification ? "rgba(255,255,255,0.78)" : "rgba(255,255,255,0.66)",
           })}
         >
           {note.text}
@@ -2594,7 +2597,7 @@ function StockfishLinesPanel({
       ) : null}
 
       {panelState.status === "error" ? (
-        <div style={sx({ color: "rgba(255,190,190,0.78)", fontSize: "12px", padding: "5px 2px" })}>
+        <div style={sx({ color: "rgba(255,255,255,0.62)", fontSize: "12px", padding: "5px 2px" })}>
           {panelState.error}
         </div>
       ) : (
@@ -2784,7 +2787,7 @@ function AnalysisMovesPanel({
       />
 
       {variationError ? (
-        <div style={sx({ fontSize: "12px", color: "#d7aaa6", lineHeight: 1.35 })}>
+        <div style={sx({ fontSize: "12px", color: "rgba(255,255,255,0.62)", lineHeight: 1.35 })}>
           {variationError}
         </div>
       ) : null}
@@ -3456,7 +3459,6 @@ function DashboardRail({
       <div style={sx({ display: "grid", gap: "10px" })}>
         {hasAccount ? (
           <>
-            <RailAction onClick={onUpgrade} bright>{account.isPremium ? "pro" : "upgrade"}</RailAction>
             <RailAction onClick={onImport} emphasis>import</RailAction>
             <RailAction onClick={onAccount} emphasis>account</RailAction>
             <RailAction onClick={onLogout}>log out</RailAction>
@@ -3566,13 +3568,18 @@ const landingPlans = [
     cadence: "per month",
     allowance: "5 games",
     refill: "24:00 hours",
-    summary: "For regular review sessions across a wider batch of games.",
+    summary: "For players who review in batches and want the pattern to stick before the next session.",
     rows: [
       ["Daily analysis", "5 games"],
       ["Refill", "Full allowance after 24 hours"],
       ["Checkout", "Stripe subscription"],
     ],
-    included: ["Everything in Regular", "5x daily allowance", "Premium account badge", "Priority review workflow"],
+    included: [
+      "Five full game reviews every day",
+      "Priority import and analysis queue",
+      "Premium badge on your account",
+      "Batch review for rook, pawn, and king-placement misses",
+    ],
   },
 ];
 
@@ -3582,97 +3589,149 @@ const landingAssurances = [
   ["sandbox", "The standalone board can analyse positions without importing or saving a game."],
 ];
 
+const landingQuotes = [
+  ["I stopped blundering my rook in the endgame.", "fenturi12", "1450 -> 1620"],
+  ["The review finally showed me why my rook checks were just noise.", "calmfile", "1320 -> 1495"],
+  ["Seeing the same pawn ending mistake twice made it impossible to ignore.", "rankwalker", "1710 -> 1818"],
+];
+
+const landingPreviewMoves = [
+  {
+    move: "39. Ra7",
+    label: "book",
+    score: "0.00",
+    from: "a2",
+    to: "a7",
+    fenBefore: "6k1/5pp1/7p/4P3/5P2/6P1/R5KP/1r6 w - - 0 39",
+    fenAfter: "6k1/R4pp1/7p/4P3/5P2/6P1/6KP/1r6 b - - 1 39",
+  },
+  {
+    move: "39... Rb2+",
+    label: "best",
+    score: "-0.12",
+    from: "b1",
+    to: "b2",
+    fenBefore: "6k1/R4pp1/7p/4P3/5P2/6P1/6KP/1r6 b - - 1 39",
+    fenAfter: "6k1/R4pp1/7p/4P3/5P2/6P1/1r4KP/8 w - - 2 40",
+  },
+  {
+    move: "40. Kf3",
+    label: "book",
+    score: "0.00",
+    from: "g2",
+    to: "f3",
+    fenBefore: "6k1/R4pp1/7p/4P3/5P2/6P1/1r4KP/8 w - - 2 40",
+    fenAfter: "6k1/R4pp1/7p/4P3/5P2/5KP1/1r5P/8 b - - 3 40",
+  },
+  {
+    move: "40... Rb3+",
+    label: "inaccuracy",
+    score: "+0.34",
+    from: "b2",
+    to: "b3",
+    fenBefore: "6k1/R4pp1/7p/4P3/5P2/5KP1/1r5P/8 b - - 3 40",
+    fenAfter: "6k1/R4pp1/7p/4P3/5P2/1r3KP1/7P/8 w - - 4 41",
+  },
+  {
+    move: "41. Ke4",
+    label: "best",
+    score: "+0.42",
+    from: "f3",
+    to: "e4",
+    fenBefore: "6k1/R4pp1/7p/4P3/5P2/1r3KP1/7P/8 w - - 4 41",
+    fenAfter: "6k1/R4pp1/7p/4P3/4KP2/1r4P1/7P/8 b - - 5 41",
+  },
+  {
+    move: "41... Rxg3",
+    label: "blunder",
+    score: "+2.60",
+    from: "b3",
+    to: "g3",
+    fenBefore: "6k1/R4pp1/7p/4P3/4KP2/1r4P1/7P/8 b - - 5 41",
+    fenAfter: "6k1/R4pp1/7p/4P3/4KP2/6r1/7P/8 w - - 0 42",
+  },
+  {
+    move: "42. Rxf7",
+    label: "best",
+    score: "+1.88",
+    from: "a7",
+    to: "f7",
+    fenBefore: "6k1/R4pp1/7p/4P3/4KP2/6r1/7P/8 w - - 0 42",
+    fenAfter: "6k1/5Rp1/7p/4P3/4KP2/6r1/7P/8 b - - 0 42",
+  },
+];
+
+function landingAnnotationFromMove(move) {
+  const moveIndex = Number.parseInt(move.move, 10);
+  const isBlackMove = move.move.includes("...");
+
+  return {
+    ply: moveIndex * 2 - (isBlackMove ? 0 : 1),
+    move_index: moveIndex,
+    san: move.move.split(" ").at(-1),
+    classification: move.label,
+    from_square: move.from,
+    to_square: move.to,
+    fen_before: move.fenBefore,
+    fen_after: move.fenAfter,
+    evaluation_after: Number(move.score),
+    cp_loss: move.label === "blunder" ? 418 : move.label === "inaccuracy" ? 72 : 0,
+  };
+}
+
 function LandingPreview() {
-  const previewFen = "r1bq1rk1/ppp2ppp/2nbpn2/3p4/3P4/2PBPN2/PP3PPP/RNBQ1RK1 w - - 0 8";
-  const previewRows = [
-    ["8. Bd3", "book", "0.00"],
-    ["17. h3", "inaccuracy", "-0.72"],
-    ["24. Nxe5", "blunder", "-4.18"],
-  ];
+  const [activeMoveIndex, setActiveMoveIndex] = useState(0);
+  const [showMoveAfter, setShowMoveAfter] = useState(false);
+  const activeMove = landingPreviewMoves[activeMoveIndex];
+  const activeAnnotation = landingAnnotationFromMove(activeMove);
+
+  useEffect(() => {
+    setShowMoveAfter(false);
+
+    const moveTimeout = window.setTimeout(() => {
+      setShowMoveAfter(true);
+    }, 180);
+    const nextTimeout = window.setTimeout(() => {
+      setActiveMoveIndex((current) => (current + 1) % landingPreviewMoves.length);
+    }, 2000);
+
+    return () => {
+      window.clearTimeout(moveTimeout);
+      window.clearTimeout(nextTimeout);
+    };
+  }, [activeMoveIndex]);
 
   return (
     <div
       className="landing-preview"
       style={sx({
         display: "grid",
-        gap: "18px",
         minWidth: 0,
         borderTop: "1px solid rgba(255,255,255,0.08)",
         borderBottom: "1px solid rgba(255,255,255,0.08)",
-        padding: "24px 0",
+        padding: "24px",
+        background: "rgba(8,8,8,0.72)",
+        backdropFilter: "blur(14px)",
       })}
     >
       <div
         style={sx({
           display: "flex",
-          justifyContent: "space-between",
-          gap: "18px",
-          alignItems: "baseline",
-        })}
-      >
-        <span style={sx({ fontSize: "11px", letterSpacing: ".18em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)" })}>
-          live review model
-        </span>
-        <span className="landing-live-dot" aria-hidden="true" />
-      </div>
-
-      <div
-        style={sx({
-          display: "grid",
-          gridTemplateColumns: "minmax(190px, 300px) minmax(220px, 1fr)",
-          gap: "24px",
-          alignItems: "center",
+          justifyContent: "center",
           minWidth: 0,
         })}
       >
         <div className="landing-board-frame">
-          <MiniBoard fen={previewFen} />
-        </div>
-
-        <div style={sx({ display: "grid", gap: "16px", minWidth: 0 })}>
-          {previewRows.map(([move, label, swing], index) => (
-            <div
-              key={move}
-              className={index === 2 ? "landing-preview-row is-critical" : "landing-preview-row"}
-              style={sx({
-                "--landing-row-delay": `${index * 120}ms`,
-                display: "grid",
-                gridTemplateColumns: "72px minmax(0, 1fr) 58px",
-                gap: "12px",
-                alignItems: "center",
-                borderBottom: "1px solid rgba(255,255,255,0.055)",
-                paddingBottom: "13px",
-              })}
-            >
-              <span style={sx({ color: "rgba(255,255,255,0.72)", fontSize: "16px" })}>{move}</span>
-              <span style={sx({ color: "rgba(255,255,255,0.34)", fontSize: "12px", letterSpacing: ".13em", textTransform: "uppercase" })}>
-                {label}
-              </span>
-              <span style={sx({ color: label === "blunder" ? "#d3a19a" : "rgba(255,255,255,0.38)", fontSize: "13px", textAlign: "right" })}>
-                {swing}
-              </span>
-            </div>
-          ))}
-          <div style={sx({ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px", paddingTop: "4px" })}>
-            {["opening", "middlegame", "endgame"].map((phase, index) => (
-              <span
-                key={phase}
-                className={index === 1 ? "landing-phase-pill is-active" : "landing-phase-pill"}
-                style={sx({
-                  border: "1px solid rgba(255,255,255,0.07)",
-                  color: index === 1 ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.32)",
-                  background: index === 1 ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.02)",
-                  fontSize: "10px",
-                  letterSpacing: ".12em",
-                  textTransform: "uppercase",
-                  padding: "9px 8px",
-                  textAlign: "center",
-                })}
-              >
-                {phase}
-              </span>
-            ))}
-          </div>
+          <Board
+            key={activeMoveIndex}
+            fen={showMoveAfter ? activeMove.fenAfter : activeMove.fenBefore}
+            annotation={activeAnnotation}
+            interactive={false}
+            showMoveBadge={false}
+            showCoordinates={false}
+            maxWidth="500px"
+            minWidth="300px"
+          />
         </div>
       </div>
 
@@ -3690,9 +3749,12 @@ function LandingPlanCard({ plan, featured = false, onChoose, delay = 0 }) {
         gap: "22px",
         alignContent: "start",
         minHeight: "100%",
-        border: featured ? "1px solid rgba(255,255,255,0.2)" : "1px solid rgba(255,255,255,0.08)",
+        position: "relative",
+        overflow: "hidden",
+        border: featured ? "1px solid rgba(255,255,255,0.22)" : "1px solid rgba(255,255,255,0.08)",
         borderRadius: "8px",
-        background: featured ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.018)",
+        background: featured ? "rgba(255,255,255,0.058)" : "rgba(255,255,255,0.018)",
+        boxShadow: featured ? "0 18px 50px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.08)" : "none",
         padding: "24px",
       })}
     >
@@ -3707,7 +3769,18 @@ function LandingPlanCard({ plan, featured = false, onChoose, delay = 0 }) {
           </div>
         </div>
         {featured ? (
-          <span style={sx({ color: "rgba(255,255,255,0.6)", fontSize: "10px", letterSpacing: ".14em", textTransform: "uppercase" })}>
+          <span
+            className="landing-popular-badge"
+            style={sx({
+              color: "rgba(255,255,255,0.82)",
+              background: "rgba(255,255,255,0.12)",
+              fontSize: "10px",
+              letterSpacing: ".14em",
+              textTransform: "uppercase",
+              padding: "7px 9px",
+              borderRadius: "999px",
+            })}
+          >
             popular
           </span>
         ) : null}
@@ -3743,7 +3816,21 @@ function LandingPlanCard({ plan, featured = false, onChoose, delay = 0 }) {
       <div style={sx({ display: "grid", gap: "8px" })}>
         {plan.included.map((item) => (
           <div key={item} style={sx({ display: "flex", alignItems: "center", gap: "10px", color: "rgba(255,255,255,0.52)", fontSize: "13px" })}>
-            <span style={sx({ width: "5px", height: "5px", borderRadius: "50%", background: "rgba(255,255,255,0.48)", flex: "0 0 auto" })} />
+            <span style={sx({
+              width: "16px",
+              height: "16px",
+              borderRadius: "50%",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: featured ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.06)",
+              color: featured ? "rgba(255,255,255,0.82)" : "rgba(255,255,255,0.48)",
+              flex: "0 0 auto",
+              fontSize: "11px",
+              lineHeight: 1,
+            })}>
+              ✓
+            </span>
             <span>{item}</span>
           </div>
         ))}
@@ -3827,12 +3914,23 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis, onUp
           className="landing-hero"
           style={sx({
             display: "grid",
-            gridTemplateColumns: "minmax(320px, 0.92fr) minmax(420px, 1fr)",
-            gap: "56px",
-            alignItems: "end",
+            gridTemplateColumns: "minmax(320px, 0.98fr) minmax(420px, 0.92fr)",
+            gap: 0,
+            alignItems: "center",
+            position: "relative",
           })}
         >
-          <div style={sx({ display: "grid", gap: "28px", minWidth: 0 })}>
+          <div
+            className="landing-hero-copy"
+            style={sx({
+              display: "grid",
+              gap: "28px",
+              minWidth: 0,
+              position: "relative",
+              zIndex: 2,
+              paddingRight: "42px",
+            })}
+          >
             <div style={sx({ fontSize: "12px", letterSpacing: ".18em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)" })}>
               chess analysis for games you actually played
             </div>
@@ -3929,7 +4027,69 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis, onUp
               ) : null}
             </div>
           </div>
-          <LandingPreview />
+          <div
+            className="landing-hero-preview"
+            style={sx({
+              position: "relative",
+              zIndex: 1,
+              marginLeft: "-52px",
+            })}
+          >
+            <LandingPreview />
+          </div>
+        </section>
+
+        <section
+          className="landing-testimonial landing-scroll-reveal"
+          style={sx({
+            display: "grid",
+            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+            gap: "18px",
+            borderTop: "1px solid rgba(255,255,255,0.06)",
+            borderBottom: "1px solid rgba(255,255,255,0.06)",
+            padding: "24px 0",
+          })}
+        >
+          {landingQuotes.map(([quote, user, rating], index) => (
+            <figure
+              key={user}
+              className="landing-proof"
+              style={sx({
+                "--landing-row-delay": `${index * 90}ms`,
+                display: "grid",
+                gap: "16px",
+                margin: 0,
+                borderTop: "1px solid rgba(255,255,255,0.075)",
+                paddingTop: "14px",
+              })}
+            >
+              <blockquote
+                style={sx({
+                  margin: 0,
+                  color: "rgba(255,255,255,0.72)",
+                  fontSize: "18px",
+                  lineHeight: 1.48,
+                  fontWeight: 200,
+                })}
+              >
+                "{quote}"
+              </blockquote>
+              <figcaption
+                style={sx({
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "14px",
+                  color: "rgba(255,255,255,0.36)",
+                  fontSize: "11px",
+                  letterSpacing: ".12em",
+                  textTransform: "uppercase",
+                })}
+              >
+                <span>{user}</span>
+                <span>{rating}</span>
+              </figcaption>
+            </figure>
+          ))}
         </section>
 
         <section
@@ -4193,7 +4353,7 @@ function LoginPage({ onBack, onLoggedIn }) {
               fontSize: "13px",
               letterSpacing: ".08em",
               textTransform: "uppercase",
-              color: status === "error" ? "#c8a2a2" : "rgba(255,255,255,0.35)",
+              color: status === "error" ? "rgba(255,255,255,0.62)" : "rgba(255,255,255,0.35)",
             })}
           >
             {message}
@@ -4430,7 +4590,7 @@ function DevResetPage({ onHome, onResetComplete }) {
           {message ? (
             <div
               style={sx({
-                color: status === "error" ? "#d7aaa6" : "rgba(255,255,255,0.48)",
+                color: status === "error" ? "rgba(255,255,255,0.62)" : "rgba(255,255,255,0.48)",
                 fontSize: "13px",
                 letterSpacing: ".08em",
                 textTransform: "uppercase",
@@ -4680,9 +4840,9 @@ function AccountBadge({ badge }) {
         width: "31px",
         height: "31px",
         borderRadius: "9px",
-        border: isPremium ? "1px solid rgba(155,92,255,0.55)" : "1px solid rgba(255,255,255,0.18)",
-        background: isPremium ? "rgba(155,92,255,0.16)" : "rgba(255,255,255,0.07)",
-        color: isPremium ? "rgba(210,190,255,0.95)" : "rgba(255,255,255,0.82)",
+        border: isPremium ? "1px solid rgba(255,255,255,0.34)" : "1px solid rgba(255,255,255,0.18)",
+        background: isPremium ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.07)",
+        color: isPremium ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.82)",
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
@@ -4864,7 +5024,7 @@ function AccountPage({
               fontSize: "13px",
               letterSpacing: ".08em",
               textTransform: "uppercase",
-              color: billingNotice.toLowerCase().includes("unable") ? "#c8a2a2" : "rgba(255,255,255,0.38)",
+              color: billingNotice.toLowerCase().includes("unable") ? "rgba(255,255,255,0.62)" : "rgba(255,255,255,0.38)",
             })}
           >
             {billingNotice}
@@ -4916,7 +5076,7 @@ function AccountPage({
                   fontSize: "13px",
                   letterSpacing: ".08em",
                   textTransform: "uppercase",
-                  color: redeemStatus === "error" ? "#c8a2a2" : "rgba(255,255,255,0.35)",
+                  color: redeemStatus === "error" ? "rgba(255,255,255,0.62)" : "rgba(255,255,255,0.35)",
                 })}
               >
                 {redeemMessage}
@@ -5118,7 +5278,7 @@ function UpgradePage({ account, onBack, onUpgraded }) {
                 fontSize: "13px",
                 letterSpacing: ".08em",
                 textTransform: "uppercase",
-                color: status === "error" ? "#c8a2a2" : "rgba(255,255,255,0.42)",
+                color: status === "error" ? "rgba(255,255,255,0.62)" : "rgba(255,255,255,0.42)",
               })}
             >
               {message}
@@ -5136,15 +5296,44 @@ const planLabels = {
 };
 
 function formatClock(ms) {
-  if (!Number.isFinite(ms) || ms <= 0) return "24:00";
+  if (!Number.isFinite(ms) || ms <= 0) return "24:00:00";
 
-  const totalMinutes = Math.ceil(ms / 60000);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
+  const totalSeconds = Math.ceil(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
 
-  return [hours, minutes]
+  return [hours, minutes, seconds]
     .map((value) => String(value).padStart(2, "0"))
     .join(":");
+}
+
+function ImportAllowanceMeter({ remaining, limit }) {
+  const total = Math.max(1, Number(limit) || 1);
+  const available = Math.max(0, Math.min(total, Number(remaining) || 0));
+
+  return (
+    <div
+      aria-label={`${available} of ${total} imports remain`}
+      style={sx({
+        display: "grid",
+        gridTemplateColumns: `repeat(${total}, minmax(0, 1fr))`,
+        gap: "4px",
+        width: "100%",
+      })}
+    >
+      {Array.from({ length: total }).map((_, index) => (
+        <span
+          key={index}
+          style={sx({
+            height: "18px",
+            border: "1px solid rgba(255,255,255,0.14)",
+            background: index < available ? "rgba(255,255,255,0.72)" : "rgba(255,255,255,0.035)",
+          })}
+        />
+      ))}
+    </div>
+  );
 }
 
 function ImportPage({ account, onBack, onImported }) {
@@ -5153,16 +5342,35 @@ function ImportPage({ account, onBack, onImported }) {
   const [message, setMessage] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const plan = allowance?.isPremium || account.isPremium ? "pro" : "free";
-  const limit = plan === "pro" ? allowance?.proLimit ?? 5 : allowance?.freeLimit ?? 1;
-  const storedRemaining = plan === "pro" ? allowance?.proRemaining ?? 0 : allowance?.freeRemaining ?? 0;
-  const storedUsed = plan === "pro" ? allowance?.proUsed ?? 0 : allowance?.freeUsed ?? 0;
-  const resetAt = plan === "pro" ? allowance?.proResetAt : allowance?.freeResetAt;
-  const resetMs = resetAt ? new Date(resetAt).getTime() - now : 0;
-  const resetElapsed = !!resetAt && resetMs <= 0;
-  const remaining = resetElapsed ? limit : storedRemaining;
-  const used = resetElapsed ? 0 : storedUsed;
-  const clock = used > 0 && remaining < limit ? formatClock(resetMs) : "24:00";
+
+  function allowanceSnapshot(kind) {
+    const limitKey = kind === "pro" ? "proLimit" : "freeLimit";
+    const remainingKey = kind === "pro" ? "proRemaining" : "freeRemaining";
+    const usedKey = kind === "pro" ? "proUsed" : "freeUsed";
+    const resetKey = kind === "pro" ? "proResetAt" : "freeResetAt";
+    const nextLimit = allowance?.[limitKey] ?? (kind === "pro" ? 5 : 1);
+    const nextResetAt = allowance?.[resetKey];
+    const nextResetMs = nextResetAt ? new Date(nextResetAt).getTime() - now : 0;
+    const nextResetElapsed = !!nextResetAt && nextResetMs <= 0;
+
+    return {
+      limit: nextLimit,
+      remaining: nextResetElapsed ? nextLimit : allowance?.[remainingKey] ?? 0,
+      used: nextResetElapsed ? 0 : allowance?.[usedKey] ?? 0,
+      resetAt: nextResetAt,
+      resetMs: nextResetMs,
+    };
+  }
+
+  const activeAllowance = allowanceSnapshot(plan);
+  const proAllowance = allowanceSnapshot("pro");
+  const limit = activeAllowance.limit;
+  const remaining = activeAllowance.remaining;
+  const used = activeAllowance.used;
+  const resetMs = activeAllowance.resetMs;
+  const clock = used > 0 && remaining < limit ? formatClock(resetMs) : "24:00:00";
   const canImport = !!allowance && remaining > 0;
+  const proUnlocked = plan === "pro";
 
   useEffect(() => {
     let isActive = true;
@@ -5246,7 +5454,7 @@ function ImportPage({ account, onBack, onImported }) {
       <form onSubmit={submit} style={sx({ maxWidth: "980px", display: "grid", gap: "34px" })}>
         <div>
           <div style={sx({ fontSize: "13px", letterSpacing: ".16em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)", marginBottom: "12px" })}>
-            import games
+            /import
           </div>
           <div style={sx({ fontSize: "34px", fontWeight: 200, color: "#fff" })}>
             {account.platform} / {account.username}
@@ -5265,9 +5473,10 @@ function ImportPage({ account, onBack, onImported }) {
                 gap: "10px",
               })}
             >
-              <span style={sx({ display: "block", fontSize: "22px" })}>{planLabels[plan]} daily allowance</span>
+              <span style={sx({ display: "block", fontSize: "22px" })}>{remaining} imports remain</span>
+              <ImportAllowanceMeter remaining={remaining} limit={limit} />
               <span style={sx({ color: "rgba(255,255,255,0.42)", fontSize: "14px", lineHeight: 1.5 })}>
-                {remaining} of {limit} games available.
+                {planLabels[plan]} daily allowance: {remaining} of {limit} games available.
               </span>
             </div>
 
@@ -5281,16 +5490,21 @@ function ImportPage({ account, onBack, onImported }) {
                 gap: "10px",
               })}
             >
-              <span style={sx({ display: "block", fontSize: "22px" })}>{clock}</span>
+              <span style={sx({ display: "block", fontSize: "22px" })}>Pro allowance {proUnlocked ? "unlocked" : "locked"}</span>
               <span style={sx({ color: "rgba(255,255,255,0.42)", fontSize: "14px", lineHeight: 1.5 })}>
-                The allowance replenishes to full when the 24:00 hour clock reaches zero.
+                {proUnlocked
+                  ? `${proAllowance.remaining} of ${proAllowance.limit} Pro imports available today.`
+                  : `Unlock ${proAllowance.limit} daily imports with Pro.`}
+              </span>
+              <span style={sx({ color: "rgba(255,255,255,0.3)", fontSize: "12px", letterSpacing: ".1em", textTransform: "uppercase" })}>
+                refill clock {clock}
               </span>
             </div>
           </section>
 
           <section style={sx({ display: "grid", gap: "28px" })}>
             {allowance && remaining <= 0 ? (
-              <div style={sx({ color: "#ffd29a", fontSize: "13px", letterSpacing: ".08em", textTransform: "uppercase" })}>
+              <div style={sx({ color: "rgba(255,255,255,0.66)", fontSize: "13px", letterSpacing: ".08em", textTransform: "uppercase" })}>
                 Daily allowance used. Wait for the clock to replenish.
               </div>
             ) : null}
@@ -5342,7 +5556,7 @@ function ImportPage({ account, onBack, onImported }) {
         </div>
 
         {message ? (
-          <p style={sx({ color: status === "error" ? "#c8a2a2" : "rgba(255,255,255,0.42)", fontSize: "13px", letterSpacing: ".08em", textTransform: "uppercase" })}>
+          <p style={sx({ color: status === "error" ? "rgba(255,255,255,0.62)" : "rgba(255,255,255,0.42)", fontSize: "13px", letterSpacing: ".08em", textTransform: "uppercase" })}>
             {message}
           </p>
         ) : null}
@@ -5569,7 +5783,7 @@ function OpeningDatabasePanel({ fen, embedded = false }) {
         </div>
 
         {status === "error" ? (
-          <div style={sx({ fontSize: "12px", color: "#d9aaa2", lineHeight: 1.45 })}>
+          <div style={sx({ fontSize: "12px", color: "rgba(255,255,255,0.62)", lineHeight: 1.45 })}>
             {error}
             {error.includes("LICHESS_TOKEN") ? (
               <span style={sx({ display: "block", marginTop: "8px", color: "rgba(255,255,255,0.42)" })}>
@@ -5985,7 +6199,7 @@ function BrowserAnalysisPage({ onHome }) {
           </div>
 
           {error ? (
-            <div style={sx({ color: "#d7aaa6", fontSize: "13px", lineHeight: 1.4 })}>{error}</div>
+            <div style={sx({ color: "rgba(255,255,255,0.62)", fontSize: "13px", lineHeight: 1.4 })}>{error}</div>
           ) : (
             <div style={sx({ color: "rgba(255,255,255,0.32)", fontSize: "13px", lineHeight: 1.45 })}>
               Frontend only. No import, preprocessing, or server-saved analysis.

@@ -70,6 +70,7 @@ function checkoutSessionParams({ req, user, provider, username }) {
     success_url: `${baseUrl}/pro?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${baseUrl}/pro?checkout=cancelled`,
     client_reference_id: `${provider}:${username.toLowerCase()}`,
+    "payment_method_types[0]": "card",
     "metadata[provider]": provider,
     "metadata[username]": username.toLowerCase(),
     "metadata[user_id]": String(user.id),

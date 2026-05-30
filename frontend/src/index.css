@@ -538,12 +538,28 @@ html, body, #root {
   background: rgba(255, 255, 255, 0.075) !important;
 }
 
+.landing-popular-badge {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 0 22px rgba(255, 255, 255, 0.06);
+}
+
 .landing-plan-row:last-child {
   border-bottom: none !important;
 }
 
 .landing-preview-row {
   position: relative;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    transform 180ms ease;
+}
+
+.landing-preview-row.is-active {
+  background: rgba(255, 255, 255, 0.045);
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  transform: translateX(4px);
 }
 
 .landing-preview-row.is-critical::before {
@@ -553,30 +569,63 @@ html, body, #root {
   top: 0;
   bottom: 13px;
   width: 2px;
-  background: rgba(211, 161, 154, 0.82);
+  background: rgba(255, 255, 255, 0.68);
   animation: landingCriticalPulse 1.8s ease-in-out infinite;
 }
 
-.landing-live-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: 0 0 14px rgba(255, 255, 255, 0.22);
-  animation: landingLivePulse 1.6s ease-in-out infinite;
+.landing-eval-score {
+  opacity: 0;
+  transform: translateY(5px);
+  transition:
+    opacity 280ms ease,
+    transform 280ms ease;
 }
 
-.landing-phase-pill.is-active {
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03), 0 0 22px rgba(255, 255, 255, 0.035);
+.landing-eval-score.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.landing-classification-chip {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.landing-classification-chip.is-book {
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.landing-classification-chip.is-best {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.landing-classification-chip.is-inaccuracy {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.landing-classification-chip.is-blunder {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.18);
 }
 
 @media (max-width: 980px) {
   .landing-hero,
   .landing-detail-grid,
   .landing-pricing,
-  .landing-assurance {
+  .landing-assurance,
+  .landing-testimonial {
     grid-template-columns: 1fr !important;
     gap: 36px !important;
+  }
+
+  .landing-hero-copy {
+    padding-right: 0 !important;
+  }
+
+  .landing-hero-preview {
+    margin-left: 0 !important;
   }
 
   .landing-preview {
@@ -610,8 +659,13 @@ html, body, #root {
   }
 
   .landing-pricing > div:last-child,
-  .landing-assurance {
+  .landing-assurance,
+  .landing-testimonial {
     grid-template-columns: 1fr !important;
+  }
+
+  .landing-testimonial > div {
+    justify-items: start !important;
   }
 
   .landing-plan-row {
@@ -631,12 +685,16 @@ html, body, #root {
   .landing-scroll-reveal .landing-plan,
   .landing-scroll-reveal .landing-proof,
   .landing-scroll-reveal::before,
-  .landing-live-dot,
   .landing-board-frame,
   .landing-preview::after,
   .landing-preview-row.is-critical::before {
     animation: none !important;
     transform: none !important;
     filter: none !important;
+  }
+
+  .landing-eval-score {
+    opacity: 1 !important;
+    transform: none !important;
   }
 }
