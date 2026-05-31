@@ -23,8 +23,10 @@ import { apiUrl } from "./lib/api.js";
 
 const UI_SCALE = 1.1;
 const ACCOUNT_STORAGE_KEY = "blunder.account";
+const BOARD_THEME_STORAGE_KEY = "blunder.boardTheme";
 const DISCORD_INVITE_URL = "https://discord.gg/cgDt8EksRc";
 const LANDING_NAVIGATION_EVENT = "blunder:navigate-landing";
+const UPGRADE_NAVIGATION_EVENT = "blunder:navigate-upgrade";
 const phases = ["Opening", "Middlegame", "Endgame"];
 const moveClassifications = ["book", "only", "best", "good", "inaccuracy", "mistake", "blunder", "miss"];
 const philosophyQuotes = [
@@ -60,6 +62,70 @@ const classificationIcons = {
   blunder: moveIcon3,
   miss: moveIcon3,
 };
+
+const boardColorPresets = [
+  {
+    id: "default",
+    label: "Default",
+    light: "#d1d1d1",
+    dark: "#3d3d3d",
+    board: "#101010",
+    border: "rgba(255,255,255,0.08)",
+    coordinateLight: "rgba(0,0,0,0.45)",
+    coordinateDark: "rgba(255,255,255,0.45)",
+  },
+  {
+    id: "icy-blue",
+    label: "Icy blue",
+    light: "#dce8ee",
+    dark: "#6f8796",
+    board: "#0e1317",
+    border: "rgba(220,232,238,0.2)",
+    coordinateLight: "rgba(10,16,20,0.52)",
+    coordinateDark: "rgba(255,255,255,0.62)",
+  },
+  {
+    id: "midnight",
+    label: "Midnight",
+    light: "#7f8288",
+    dark: "#1f2329",
+    board: "#0b0d10",
+    border: "rgba(255,255,255,0.1)",
+    coordinateLight: "rgba(0,0,0,0.52)",
+    coordinateDark: "rgba(255,255,255,0.48)",
+  },
+  {
+    id: "glass",
+    label: "Glass",
+    light: "rgba(255,255,255,0.28)",
+    dark: "rgba(255,255,255,0.09)",
+    board: "rgba(255,255,255,0.035)",
+    border: "rgba(255,255,255,0.16)",
+    squareShadow: "inset 0 0 0 1px rgba(255,255,255,0.035)",
+    coordinateLight: "rgba(255,255,255,0.72)",
+    coordinateDark: "rgba(255,255,255,0.5)",
+  },
+  {
+    id: "purple",
+    label: "Purple",
+    light: "#c8bfe1",
+    dark: "#51446c",
+    board: "#141019",
+    border: "rgba(200,191,225,0.2)",
+    coordinateLight: "rgba(18,12,26,0.54)",
+    coordinateDark: "rgba(255,255,255,0.62)",
+  },
+  {
+    id: "tournament",
+    label: "Tournament",
+    light: "#e1d4bd",
+    dark: "#8c6845",
+    board: "#17110c",
+    border: "rgba(225,212,189,0.18)",
+    coordinateLight: "rgba(28,18,10,0.52)",
+    coordinateDark: "rgba(255,255,255,0.58)",
+  },
+];
 
 function scalePx(value) {
   if (typeof value !== "string") return value;
@@ -169,6 +235,17 @@ function readStoredAccount() {
   }
 }
 
+function boardThemeById(themeId) {
+  return boardColorPresets.find((preset) => preset.id === themeId) || boardColorPresets[0];
+}
+
+function readStoredBoardTheme() {
+  if (typeof window === "undefined") return boardColorPresets[0].id;
+
+  const storedTheme = window.localStorage.getItem(BOARD_THEME_STORAGE_KEY);
+  return boardThemeById(storedTheme).id;
+}
+
 function initialViewForAccount(account) {
   if (typeof window === "undefined") return account.username ? "dash" : "landing";
 
@@ -176,6 +253,7 @@ function initialViewForAccount(account) {
   if (window.location.pathname === "/dev") return "dev";
   if (window.location.pathname === "/pro") return "upgrade";
   if (window.location.pathname === "/import" && account.username) return "import";
+  if (window.location.pathname === "/settings" && account.username) return "settings";
   return window.location.pathname === "/dashboard" && account.username ? "dash" : "landing";
 }
 
@@ -184,6 +262,7 @@ function pathForView(view) {
   if (view === "dev") return "/dev";
   if (view === "upgrade") return "/pro";
   if (view === "import") return "/import";
+  if (view === "settings") return "/settings";
 
   return ["dash", "loading", "account", "analysis"].includes(view)
     ? "/dashboard"
@@ -1500,6 +1579,7 @@ function Board({
   const animatedPiecesRef = useRef(animatedPieces);
   const files = ["a", "b", "c", "d", "e", "f", "g", "h"];
   const ranks = ["8", "7", "6", "5", "4", "3", "2", "1"];
+  const boardTheme = boardThemeById(readStoredBoardTheme());
   const isPendingClassification = isClassificationPending(annotation);
   const displayClassification = visualClassification(annotation);
   const badgeSquare = squareIndexes(inferMoveTargetSquare(annotation));
@@ -1705,8 +1785,9 @@ function Board({
         display: "grid",
         gridTemplateColumns: "repeat(8, 1fr)",
         gridTemplateRows: "repeat(8, minmax(0, 1fr))",
-        border: "1px solid rgba(255,255,255,0.08)",
-        background: "#0c0e11",
+        border: `1px solid ${boardTheme.border}`,
+        background: boardTheme.board,
+        backdropFilter: boardTheme.id === "glass" ? "blur(18px)" : "none",
         overflow: "hidden",
         cursor: onMove && !isMoveBusy ? "grab" : "default",
         touchAction: onMove ? "none" : "auto",
@@ -1727,7 +1808,8 @@ function Board({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                background: isLight ? "#d4d0c7" : "#3a4046",
+                background: isLight ? boardTheme.light : boardTheme.dark,
+                boxShadow: boardTheme.squareShadow || "none",
                 minWidth: 0,
                 minHeight: 0,
                 aspectRatio: "1 / 1",
@@ -1741,7 +1823,7 @@ function Board({
                     top: "8px",
                     left: "8px",
                     fontSize: "11px",
-                    color: isLight ? "rgba(0,0,0,0.45)" : "rgba(255,255,255,0.45)",
+                    color: isLight ? boardTheme.coordinateLight : boardTheme.coordinateDark,
                     letterSpacing: ".08em",
                   })}
                 >
@@ -1756,7 +1838,7 @@ function Board({
                     right: "8px",
                     bottom: "8px",
                     fontSize: "11px",
-                    color: isLight ? "rgba(0,0,0,0.45)" : "rgba(255,255,255,0.45)",
+                    color: isLight ? boardTheme.coordinateLight : boardTheme.coordinateDark,
                     letterSpacing: ".08em",
                   })}
                 >
@@ -2023,9 +2105,10 @@ function MoveListCell({ annotation, activePly, onSelectPly }) {
 function AccuracyCard({ color, player, summary, isUser }) {
   return (
     <div
+      className="accuracy-card"
       style={sx({
         display: "grid",
-        gap: "10px",
+        gap: "12px",
         padding: "12px 0",
         borderTop: "1px solid rgba(255,255,255,0.065)",
       })}
@@ -2039,13 +2122,18 @@ function AccuracyCard({ color, player, summary, isUser }) {
             {player}
           </div>
         </div>
-        <div style={sx({ fontSize: "32px", color: "#fff", lineHeight: 1 })}>
-          {summary.accuracy}
-          <span style={sx({ fontSize: "14px", color: "rgba(255,255,255,0.32)", marginLeft: "2px" })}>%</span>
-        </div>
+        <VisualDonut
+          value={summary.accuracy}
+          total={100}
+          label="accuracy"
+          detail={`${summary.moveCount} moves`}
+          size="78px"
+          color={color === "white" ? "rgba(255,255,255,0.86)" : "rgba(255,255,255,0.58)"}
+        />
       </div>
 
       <div
+        className="classification-count-grid"
         style={sx({
           display: "grid",
           gridTemplateColumns: "repeat(8, minmax(0, 1fr))",
@@ -2429,7 +2517,7 @@ function CurrentEvalBar({ annotation, evaluationOverride = null }) {
         minWidth: "30px",
         width: "30px",
         border: "1px solid rgba(255,255,255,0.08)",
-        background: "#202328",
+        background: "#232323",
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
@@ -2440,7 +2528,7 @@ function CurrentEvalBar({ annotation, evaluationOverride = null }) {
         style={sx({
           height: `${blackPercent}%`,
           minHeight: "4%",
-          background: "#25282d",
+          background: "#2b2b2b",
           transition: "height 360ms cubic-bezier(.2,.8,.2,1)",
         })}
       />
@@ -2448,7 +2536,7 @@ function CurrentEvalBar({ annotation, evaluationOverride = null }) {
         style={sx({
           height: `${whitePercent}%`,
           minHeight: "4%",
-          background: "#eee9df",
+          background: "#eeeeee",
           transition: "height 360ms cubic-bezier(.2,.8,.2,1)",
         })}
       />
@@ -3031,7 +3119,7 @@ const styles = {
     background: "#080808",
     minHeight: "100vh",
     width: "100%",
-    padding: "56px",
+    padding: "clamp(22px, 4vw, 56px)",
     fontFamily: "'Helvetica Neue', Helvetica, Arial, sans-serif",
     fontWeight: 200,
     color: "#fff",
@@ -3041,19 +3129,19 @@ const styles = {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: "72px",
+    marginBottom: "clamp(38px, 6vw, 72px)",
     gap: "24px",
     flexWrap: "wrap",
   }),
   logo: sx({
-    fontSize: "44px",
+    fontSize: "clamp(30px, 5vw, 44px)",
     fontWeight: 300,
     letterSpacing: ".08em",
   }),
   sections: sx({
     display: "flex",
     flexDirection: "column",
-    gap: "64px",
+    gap: "clamp(34px, 6vw, 64px)",
     maxWidth: "920px",
   }),
   sectionHeader: sx({
@@ -3103,6 +3191,110 @@ function Bar({ width, opacity = 0.1 }) {
         verticalAlign: "middle",
       })}
     />
+  );
+}
+
+function VisualDonut({
+  value,
+  total,
+  label,
+  detail,
+  size = "92px",
+  color = "rgba(255,255,255,0.72)",
+}) {
+  const safeTotal = Math.max(1, Number(total) || 0);
+  const safeValue = Math.max(0, Math.min(safeTotal, Number(value) || 0));
+  const percent = Math.round((safeValue / safeTotal) * 100);
+
+  return (
+    <div
+      className="visual-donut"
+      style={sx({
+        "--donut-size": size,
+        "--donut-percent": `${percent}%`,
+        "--donut-color": color,
+      })}
+      aria-label={`${label} ${percent}%`}
+      title={`${label} ${percent}%`}
+    >
+      <span className="visual-donut-value">{percent}%</span>
+      <span className="visual-donut-label">{label}</span>
+      {detail ? <span className="visual-donut-detail">{detail}</span> : null}
+    </div>
+  );
+}
+
+function BoardThemeSwatch({ preset }) {
+  return (
+    <span
+      className="board-theme-swatch"
+      style={sx({
+        background: preset.board,
+        borderColor: preset.border,
+        backdropFilter: preset.id === "glass" ? "blur(10px)" : "none",
+      })}
+      aria-hidden="true"
+    >
+      {Array.from({ length: 16 }).map((_, index) => {
+        const row = Math.floor(index / 4);
+        const column = index % 4;
+        const isLight = (row + column) % 2 === 0;
+
+        return (
+          <span
+            key={index}
+            style={sx({
+              background: isLight ? preset.light : preset.dark,
+              boxShadow: preset.squareShadow || "none",
+            })}
+          />
+        );
+      })}
+    </span>
+  );
+}
+
+function DashboardSettings({ boardThemeId, onBoardThemeChange }) {
+  return (
+    <section className="dashboard-settings">
+      <div className="dashboard-settings-header">
+        <span>settings</span>
+        <span>board</span>
+      </div>
+
+      <div className="dashboard-settings-grid">
+        {boardColorPresets.map((preset) => {
+          const isActive = preset.id === boardThemeId;
+
+          return (
+            <button
+              key={preset.id}
+              type="button"
+              onClick={() => onBoardThemeChange(preset.id)}
+              className={isActive ? "board-theme-option is-active" : "board-theme-option"}
+              aria-pressed={isActive}
+            >
+              <BoardThemeSwatch preset={preset} />
+              <span>{preset.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="piece-set-settings">
+        <div className="dashboard-settings-header">
+          <span>pieces</span>
+          <span>set</span>
+        </div>
+        <button type="button" className="piece-set-option is-active" aria-pressed="true">
+          <span className="piece-set-preview">
+            <img src={wN} alt="" draggable="false" />
+            <img src={bN} alt="" draggable="false" />
+          </span>
+          <span>default</span>
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -3163,6 +3355,7 @@ function MiniBoard({ fen }) {
   }
 
   const board = parseFenBoard(fen);
+  const boardTheme = boardThemeById(readStoredBoardTheme());
 
   return (
     <div
@@ -3172,8 +3365,9 @@ function MiniBoard({ fen }) {
         gridTemplateColumns: "repeat(8, 1fr)",
         gridTemplateRows: "repeat(8, 1fr)",
         overflow: "hidden",
-        border: "1px solid rgba(255,255,255,0.075)",
-        background: "#17191c",
+        border: `1px solid ${boardTheme.border}`,
+        background: boardTheme.board,
+        backdropFilter: boardTheme.id === "glass" ? "blur(12px)" : "none",
       })}
     >
       {board.flatMap((row, rowIndex) =>
@@ -3188,7 +3382,8 @@ function MiniBoard({ fen }) {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                background: isLight ? "#d4d0c7" : "#3a4046",
+                background: isLight ? boardTheme.light : boardTheme.dark,
+                boxShadow: boardTheme.squareShadow || "none",
                 minWidth: 0,
                 minHeight: 0,
               })}
@@ -3214,14 +3409,11 @@ function MiniBoard({ fen }) {
   );
 }
 
-function formatAccuracy(value) {
-  return Number.isFinite(Number(value)) ? `${value}%` : "--";
-}
-
 function IssueRow({ issue, onSelect }) {
   return (
     <button
       type="button"
+      className="issue-card"
       onClick={() => onSelect(issue)}
       style={sx({
         border: "1px solid rgba(255,255,255,0.055)",
@@ -3248,7 +3440,7 @@ function IssueRow({ issue, onSelect }) {
       <div
         style={sx({
           display: "grid",
-          gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
           gap: "6px 10px",
           fontSize: "10px",
           letterSpacing: ".08em",
@@ -3257,9 +3449,8 @@ function IssueRow({ issue, onSelect }) {
         })}
       >
         <span>{issue.result || "--"}</span>
-        <span style={sx({ textAlign: "right" })}>{issue.moves} moves</span>
-        <span>{formatPlayedDate(issue.playedAt)}</span>
-        <span style={sx({ textAlign: "right" })}>W {formatAccuracy(issue.whiteAccuracy)} / B {formatAccuracy(issue.blackAccuracy)}</span>
+        <span>{issue.moves} moves</span>
+        <span style={sx({ textAlign: "right" })}>{formatPlayedDate(issue.playedAt)}</span>
       </div>
     </button>
   );
@@ -3297,6 +3488,7 @@ function Section({ phase, issues, collapsed, onToggle, isConnected, loading, onS
 
       {!collapsed && (
         <div
+          className={hasData ? "phase-issue-grid" : undefined}
           style={hasData ? sx({
             display: "grid",
             gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))",
@@ -3386,6 +3578,8 @@ function AppShell({
   onHome,
 }) {
   const copyrightYear = new Date().getFullYear();
+  const shellAccount = readStoredAccount();
+  const showUpgradeAction = !!shellAccount.username && !shellAccount.isPremium && view !== "upgrade";
   function handleLogoClick() {
     if (typeof window === "undefined") {
       onHome?.();
@@ -3394,10 +3588,15 @@ function AppShell({
 
     window.dispatchEvent(new CustomEvent(LANDING_NAVIGATION_EVENT));
   }
+  function handleUpgradeClick() {
+    if (typeof window === "undefined") return;
+
+    window.dispatchEvent(new CustomEvent(UPGRADE_NAVIGATION_EVENT));
+  }
 
   return (
-    <div style={styles.app}>
-      <div style={styles.header}>
+    <div className={`app-shell app-shell-${view}`} style={styles.app}>
+      <div className="app-shell-header" style={styles.header}>
         <button
           type="button"
           onClick={handleLogoClick}
@@ -3414,18 +3613,42 @@ function AppShell({
         >
           <LogoMark />
         </button>
-        {view === "signup" || view === "login" ? (
-          <Nav
-            view={view}
-            onBack={onBack}
-          />
-        ) : null}
+        <div className="app-shell-actions" style={sx({ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", justifyContent: "flex-end" })}>
+          {showUpgradeAction ? (
+            <button
+              type="button"
+              onClick={handleUpgradeClick}
+              style={sx({
+                border: "1px solid rgba(255,255,255,0.1)",
+                background: "rgba(255,255,255,0.025)",
+                color: "rgba(255,255,255,0.42)",
+                minHeight: "32px",
+                padding: "7px 10px",
+                borderRadius: "6px",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                fontSize: "11px",
+                letterSpacing: ".1em",
+                textTransform: "uppercase",
+              })}
+            >
+              activate pro
+            </button>
+          ) : null}
+          {view === "signup" || view === "login" ? (
+            <Nav
+              view={view}
+              onBack={onBack}
+            />
+          ) : null}
+        </div>
       </div>
 
       {children}
 
       {view === "signup" || view === "login" ? null : (
         <footer
+          className="app-shell-footer"
           style={sx({
             marginTop: "76px",
             paddingTop: "18px",
@@ -3540,6 +3763,7 @@ function DashboardRail({
   onLogin,
   onAccount,
   onImport,
+  onSettings,
   onUpgrade,
   onLogout,
 }) {
@@ -3549,6 +3773,7 @@ function DashboardRail({
 
   return (
     <aside
+      className="dashboard-rail"
       style={sx({
         borderRight: "1px solid rgba(255,255,255,0.06)",
         paddingRight: "30px",
@@ -3604,6 +3829,10 @@ function DashboardRail({
           <>
             <RailAction onClick={onImport} emphasis>import</RailAction>
             <RailAction onClick={onAccount} emphasis>account</RailAction>
+            <RailAction onClick={onSettings}>settings</RailAction>
+            {!account.isPremium ? (
+              <RailAction onClick={onUpgrade}>upgrade</RailAction>
+            ) : null}
             <RailAction onClick={onLogout}>log out</RailAction>
           </>
         ) : (
@@ -3738,8 +3967,11 @@ const landingQuotes = [
   ["Seeing the same pawn ending mistake twice made it impossible to ignore.", "rankwalker", "1710 -> 1818"],
 ];
 
-const landingPreviewMoves = [
+const landingPreviewGames = [
   {
+    id: "rook-endgame",
+    moves: [
+      {
     move: "39. Ra7",
     label: "book",
     score: "0.00",
@@ -3802,6 +4034,244 @@ const landingPreviewMoves = [
     fenBefore: "6k1/R4pp1/7p/4P3/4KP2/6r1/7P/8 w - - 0 42",
     fenAfter: "6k1/5Rp1/7p/4P3/4KP2/6r1/7P/8 b - - 0 42",
   },
+    ],
+  },
+  {
+    id: "italian-tension",
+    moves: [
+      {
+        move: "5. d4",
+        label: "book",
+        score: "+0.20",
+        from: "d2",
+        to: "d4",
+        fenBefore: "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2P2N2/PP1P1PPP/RNBQK2R w KQkq - 1 5",
+        fenAfter: "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2BPP3/2P2N2/PP3PPP/RNBQK2R b KQkq - 0 5",
+      },
+      {
+        move: "5... exd4",
+        label: "book",
+        score: "+0.18",
+        from: "e5",
+        to: "d4",
+        fenBefore: "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2BPP3/2P2N2/PP3PPP/RNBQK2R b KQkq - 0 5",
+        fenAfter: "r1bqk2r/pppp1ppp/2n2n2/2b5/2BpP3/2P2N2/PP3PPP/RNBQK2R w KQkq - 0 6",
+      },
+      {
+        move: "6. cxd4",
+        label: "best",
+        score: "+0.22",
+        from: "c3",
+        to: "d4",
+        fenBefore: "r1bqk2r/pppp1ppp/2n2n2/2b5/2BpP3/2P2N2/PP3PPP/RNBQK2R w KQkq - 0 6",
+        fenAfter: "r1bqk2r/pppp1ppp/2n2n2/2b5/2BPP3/5N2/PP3PPP/RNBQK2R b KQkq - 0 6",
+      },
+      {
+        move: "6... Bb4+",
+        label: "good",
+        score: "+0.11",
+        from: "c5",
+        to: "b4",
+        fenBefore: "r1bqk2r/pppp1ppp/2n2n2/2b5/2BPP3/5N2/PP3PPP/RNBQK2R b KQkq - 0 6",
+        fenAfter: "r1bqk2r/pppp1ppp/2n2n2/8/1bBPP3/5N2/PP3PPP/RNBQK2R w KQkq - 1 7",
+      },
+      {
+        move: "7. Nc3",
+        label: "best",
+        score: "+0.16",
+        from: "b1",
+        to: "c3",
+        fenBefore: "r1bqk2r/pppp1ppp/2n2n2/8/1bBPP3/5N2/PP3PPP/RNBQK2R w KQkq - 1 7",
+        fenAfter: "r1bqk2r/pppp1ppp/2n2n2/8/1bBPP3/2N2N2/PP3PPP/R1BQK2R b KQkq - 2 7",
+      },
+      {
+        move: "7... Nxe4",
+        label: "inaccuracy",
+        score: "+0.54",
+        from: "f6",
+        to: "e4",
+        fenBefore: "r1bqk2r/pppp1ppp/2n2n2/8/1bBPP3/2N2N2/PP3PPP/R1BQK2R b KQkq - 2 7",
+        fenAfter: "r1bqk2r/pppp1ppp/2n5/8/1bBPn3/2N2N2/PP3PPP/R1BQK2R w KQkq - 0 8",
+      },
+      {
+        move: "8. O-O",
+        label: "best",
+        score: "+0.48",
+        from: "e1",
+        to: "g1",
+        fenBefore: "r1bqk2r/pppp1ppp/2n5/8/1bBPn3/2N2N2/PP3PPP/R1BQK2R w KQkq - 0 8",
+        fenAfter: "r1bqk2r/pppp1ppp/2n5/8/1bBPn3/2N2N2/PP3PPP/R1BQ1RK1 b kq - 1 8",
+      },
+    ],
+  },
+  {
+    id: "sicilian-storm",
+    moves: [
+      {
+        move: "8. Qf3",
+        label: "book",
+        score: "+0.28",
+        from: "d1",
+        to: "f3",
+        fenBefore: "rnbqk2r/1p2bppp/p2ppn2/6B1/3NPP2/2N5/PPP3PP/R2QKB1R w KQkq - 1 8",
+        fenAfter: "rnbqk2r/1p2bppp/p2ppn2/6B1/3NPP2/2N2Q2/PPP3PP/R3KB1R b KQkq - 2 8",
+      },
+      {
+        move: "8... Qc7",
+        label: "book",
+        score: "+0.21",
+        from: "d8",
+        to: "c7",
+        fenBefore: "rnbqk2r/1p2bppp/p2ppn2/6B1/3NPP2/2N2Q2/PPP3PP/R3KB1R b KQkq - 2 8",
+        fenAfter: "rnb1k2r/1pq1bppp/p2ppn2/6B1/3NPP2/2N2Q2/PPP3PP/R3KB1R w KQkq - 3 9",
+      },
+      {
+        move: "9. O-O-O",
+        label: "best",
+        score: "+0.34",
+        from: "e1",
+        to: "c1",
+        fenBefore: "rnb1k2r/1pq1bppp/p2ppn2/6B1/3NPP2/2N2Q2/PPP3PP/R3KB1R w KQkq - 3 9",
+        fenAfter: "rnb1k2r/1pq1bppp/p2ppn2/6B1/3NPP2/2N2Q2/PPP3PP/2KR1B1R b kq - 4 9",
+      },
+      {
+        move: "9... Nbd7",
+        label: "good",
+        score: "+0.29",
+        from: "b8",
+        to: "d7",
+        fenBefore: "rnb1k2r/1pq1bppp/p2ppn2/6B1/3NPP2/2N2Q2/PPP3PP/2KR1B1R b kq - 4 9",
+        fenAfter: "r1b1k2r/1pqnbppp/p2ppn2/6B1/3NPP2/2N2Q2/PPP3PP/2KR1B1R w kq - 5 10",
+      },
+      {
+        move: "10. g4",
+        label: "best",
+        score: "+0.42",
+        from: "g2",
+        to: "g4",
+        fenBefore: "r1b1k2r/1pqnbppp/p2ppn2/6B1/3NPP2/2N2Q2/PPP3PP/2KR1B1R w kq - 5 10",
+        fenAfter: "r1b1k2r/1pqnbppp/p2ppn2/6B1/3NPPP1/2N2Q2/PPP4P/2KR1B1R b kq - 0 10",
+      },
+    ],
+  },
+  {
+    id: "queens-gambit",
+    moves: [
+      {
+        move: "8. cxd5",
+        label: "book",
+        score: "+0.18",
+        from: "c4",
+        to: "d5",
+        fenBefore: "rnbq1rk1/p1p1bpp1/1p2pn1p/3p4/2PP3B/2N1PN2/PP3PPP/R2QKB1R w KQ - 0 8",
+        fenAfter: "rnbq1rk1/p1p1bpp1/1p2pn1p/3P4/3P3B/2N1PN2/PP3PPP/R2QKB1R b KQ - 0 8",
+      },
+      {
+        move: "8... Nxd5",
+        label: "book",
+        score: "+0.12",
+        from: "f6",
+        to: "d5",
+        fenBefore: "rnbq1rk1/p1p1bpp1/1p2pn1p/3P4/3P3B/2N1PN2/PP3PPP/R2QKB1R b KQ - 0 8",
+        fenAfter: "rnbq1rk1/p1p1bpp1/1p2p2p/3n4/3P3B/2N1PN2/PP3PPP/R2QKB1R w KQ - 0 9",
+      },
+      {
+        move: "9. Bxe7",
+        label: "best",
+        score: "+0.17",
+        from: "h4",
+        to: "e7",
+        fenBefore: "rnbq1rk1/p1p1bpp1/1p2p2p/3n4/3P3B/2N1PN2/PP3PPP/R2QKB1R w KQ - 0 9",
+        fenAfter: "rnbq1rk1/p1p1Bpp1/1p2p2p/3n4/3P4/2N1PN2/PP3PPP/R2QKB1R b KQ - 0 9",
+      },
+      {
+        move: "9... Qxe7",
+        label: "good",
+        score: "+0.11",
+        from: "d8",
+        to: "e7",
+        fenBefore: "rnbq1rk1/p1p1Bpp1/1p2p2p/3n4/3P4/2N1PN2/PP3PPP/R2QKB1R b KQ - 0 9",
+        fenAfter: "rnb2rk1/p1p1qpp1/1p2p2p/3n4/3P4/2N1PN2/PP3PPP/R2QKB1R w KQ - 0 10",
+      },
+      {
+        move: "10. Nxd5",
+        label: "best",
+        score: "+0.23",
+        from: "c3",
+        to: "d5",
+        fenBefore: "rnb2rk1/p1p1qpp1/1p2p2p/3n4/3P4/2N1PN2/PP3PPP/R2QKB1R w KQ - 0 10",
+        fenAfter: "rnb2rk1/p1p1qpp1/1p2p2p/3N4/3P4/4PN2/PP3PPP/R2QKB1R b KQ - 0 10",
+      },
+      {
+        move: "10... exd5",
+        label: "good",
+        score: "+0.16",
+        from: "e6",
+        to: "d5",
+        fenBefore: "rnb2rk1/p1p1qpp1/1p2p2p/3N4/3P4/4PN2/PP3PPP/R2QKB1R b KQ - 0 10",
+        fenAfter: "rnb2rk1/p1p1qpp1/1p5p/3p4/3P4/4PN2/PP3PPP/R2QKB1R w KQ - 0 11",
+      },
+      {
+        move: "11. Rc1",
+        label: "best",
+        score: "+0.28",
+        from: "a1",
+        to: "c1",
+        fenBefore: "rnb2rk1/p1p1qpp1/1p5p/3p4/3P4/4PN2/PP3PPP/R2QKB1R w KQ - 0 11",
+        fenAfter: "rnb2rk1/p1p1qpp1/1p5p/3p4/3P4/4PN2/PP3PPP/2RQKB1R b K - 1 11",
+      },
+    ],
+  },
+  {
+    id: "kingside-pressure",
+    moves: [
+      {
+        move: "8. d5",
+        label: "book",
+        score: "+0.10",
+        from: "d4",
+        to: "d5",
+        fenBefore: "r1bq1rk1/ppp2pbp/2np1np1/4p3/2PPP3/2N2N2/PP2BPPP/R1BQ1RK1 w - - 2 8",
+        fenAfter: "r1bq1rk1/ppp2pbp/2np1np1/3Pp3/2P1P3/2N2N2/PP2BPPP/R1BQ1RK1 b - - 0 8",
+      },
+      {
+        move: "8... Ne7",
+        label: "good",
+        score: "+0.08",
+        from: "c6",
+        to: "e7",
+        fenBefore: "r1bq1rk1/ppp2pbp/2np1np1/3Pp3/2P1P3/2N2N2/PP2BPPP/R1BQ1RK1 b - - 0 8",
+        fenAfter: "r1bq1rk1/ppp1npbp/3p1np1/3Pp3/2P1P3/2N2N2/PP2BPPP/R1BQ1RK1 w - - 1 9",
+      },
+      {
+        move: "9. b4",
+        label: "best",
+        score: "+0.22",
+        from: "b2",
+        to: "b4",
+        fenBefore: "r1bq1rk1/ppp1npbp/3p1np1/3Pp3/2P1P3/2N2N2/PP2BPPP/R1BQ1RK1 w - - 1 9",
+        fenAfter: "r1bq1rk1/ppp1npbp/3p1np1/3Pp3/1PP1P3/2N2N2/P3BPPP/R1BQ1RK1 b - - 0 9",
+      },
+      {
+        move: "9... a5",
+        label: "good",
+        score: "+0.18",
+        from: "a7",
+        to: "a5",
+        fenBefore: "r1bq1rk1/ppp1npbp/3p1np1/3Pp3/1PP1P3/2N2N2/P3BPPP/R1BQ1RK1 b - - 0 9",
+        fenAfter: "r1bq1rk1/1pp1npbp/3p1np1/p2Pp3/1PP1P3/2N2N2/P3BPPP/R1BQ1RK1 w - - 0 10",
+      },
+      {
+        move: "10. Ba3",
+        label: "best",
+        score: "+0.31",
+        from: "c1",
+        to: "a3",
+        fenBefore: "r1bq1rk1/1pp1npbp/3p1np1/p2Pp3/1PP1P3/2N2N2/P3BPPP/R1BQ1RK1 w - - 0 10",
+        fenAfter: "r1bq1rk1/1pp1npbp/3p1np1/p2Pp3/1PP1P3/B1N2N2/P3BPPP/R2Q1RK1 b - - 1 10",
+      },
+    ],
+  },
 ];
 
 function landingAnnotationFromMove(move) {
@@ -3822,62 +4292,125 @@ function landingAnnotationFromMove(move) {
   };
 }
 
+function landingPreviewAt(preview) {
+  const game = landingPreviewGames[preview.gameIndex] || landingPreviewGames[0];
+  const move = game.moves[preview.moveIndex] || game.moves[0];
+
+  return { game, move };
+}
+
+function landingPreviewKey(preview) {
+  return `${preview.gameIndex}-${preview.moveIndex}`;
+}
+
+function randomLandingPreviewAfter(currentPreview, recentGameIndexes = []) {
+  const gameIndexes = landingPreviewGames.map((_, index) => index);
+  const blockedIndexes = new Set([currentPreview.gameIndex, ...recentGameIndexes.slice(-2)]);
+  let candidates = gameIndexes.filter((index) => !blockedIndexes.has(index));
+
+  if (!candidates.length) {
+    candidates = gameIndexes.filter((index) => index !== currentPreview.gameIndex);
+  }
+
+  const gameIndex = candidates[Math.floor(Math.random() * candidates.length)] || 0;
+  const game = landingPreviewGames[gameIndex] || landingPreviewGames[0];
+  const moveIndex = Math.floor(Math.random() * game.moves.length);
+
+  return { gameIndex, moveIndex };
+}
+
+function LandingPreviewBoard({ preview, showMoveAfter }) {
+  const { move } = landingPreviewAt(preview);
+  const annotation = landingAnnotationFromMove(move);
+
+  return (
+    <div className="landing-board-frame">
+      <Board
+        key={landingPreviewKey(preview)}
+        fen={showMoveAfter ? move.fenAfter : move.fenBefore}
+        annotation={annotation}
+        interactive={false}
+        showMoveBadge={false}
+        showCoordinates={false}
+        maxWidth="500px"
+        minWidth="0"
+      />
+    </div>
+  );
+}
+
 function LandingPreview() {
-  const [activeMoveIndex, setActiveMoveIndex] = useState(0);
-  const [showMoveAfter, setShowMoveAfter] = useState(false);
-  const activeMove = landingPreviewMoves[activeMoveIndex];
-  const activeAnnotation = landingAnnotationFromMove(activeMove);
+  const [activePreview, setActivePreview] = useState({ gameIndex: 0, moveIndex: 0 });
+  const [activeMoveSettled, setActiveMoveSettled] = useState(false);
+  const [transitionPreview, setTransitionPreview] = useState(null);
+  const [transitionMoveSettled, setTransitionMoveSettled] = useState(false);
+  const recentGameIndexesRef = useRef([0]);
 
   useEffect(() => {
-    setShowMoveAfter(false);
+    const timers = [];
 
-    const moveTimeout = window.setTimeout(() => {
-      setShowMoveAfter(true);
-    }, 180);
-    const nextTimeout = window.setTimeout(() => {
-      setActiveMoveIndex((current) => (current + 1) % landingPreviewMoves.length);
-    }, 2000);
+    if (!activeMoveSettled) {
+      timers.push(window.setTimeout(() => {
+        setActiveMoveSettled(true);
+      }, 180));
+      return () => {
+        timers.forEach((timer) => window.clearTimeout(timer));
+      };
+    }
+
+    timers.push(window.setTimeout(() => {
+      const nextPreview = randomLandingPreviewAfter(activePreview, recentGameIndexesRef.current);
+      recentGameIndexesRef.current = [...recentGameIndexesRef.current, nextPreview.gameIndex].slice(-3);
+
+      setTransitionPreview(nextPreview);
+      setTransitionMoveSettled(false);
+
+      timers.push(window.setTimeout(() => {
+        setTransitionMoveSettled(true);
+      }, 120));
+
+      timers.push(window.setTimeout(() => {
+        setActivePreview(nextPreview);
+        setActiveMoveSettled(true);
+        setTransitionPreview(null);
+      }, 1080));
+    }, 5000));
 
     return () => {
-      window.clearTimeout(moveTimeout);
-      window.clearTimeout(nextTimeout);
+      timers.forEach((timer) => window.clearTimeout(timer));
     };
-  }, [activeMoveIndex]);
+  }, [activePreview, activeMoveSettled]);
 
   return (
     <div
-      className="landing-preview"
+      className={transitionPreview ? "landing-preview is-transitioning" : "landing-preview"}
       style={sx({
         display: "grid",
         minWidth: 0,
         borderTop: "1px solid rgba(255,255,255,0.08)",
         borderBottom: "1px solid rgba(255,255,255,0.08)",
-        padding: "24px",
+        padding: "var(--landing-preview-padding)",
         background: "rgba(8,8,8,0.72)",
         backdropFilter: "blur(14px)",
       })}
     >
-      <div
-        style={sx({
-          display: "flex",
-          justifyContent: "center",
-          minWidth: 0,
-        })}
-      >
-        <div className="landing-board-frame">
-          <Board
-            key={activeMoveIndex}
-            fen={showMoveAfter ? activeMove.fenAfter : activeMove.fenBefore}
-            annotation={activeAnnotation}
-            interactive={false}
-            showMoveBadge={false}
-            showCoordinates={false}
-            maxWidth="500px"
-            minWidth="300px"
+      <div className="landing-preview-board-stack">
+        <div className="landing-preview-active-board">
+          <LandingPreviewBoard
+            preview={activePreview}
+            showMoveAfter={activeMoveSettled}
           />
         </div>
-      </div>
 
+        {transitionPreview ? (
+          <div className="landing-preview-transition-board" aria-hidden="true">
+            <LandingPreviewBoard
+              preview={transitionPreview}
+              showMoveAfter={transitionMoveSettled}
+            />
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -4103,7 +4636,10 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis, onUp
             >
               Import your online games, find the moments that changed them, and review each mistake with board context instead of a wall of engine output.
             </p>
-            <div style={sx({ display: "flex", gap: "14px", flexWrap: "wrap", alignItems: "center", paddingTop: "6px" })}>
+            <div
+              className="landing-cta-row"
+              style={sx({ display: "flex", gap: "14px", flexWrap: "wrap", alignItems: "center", paddingTop: "6px" })}
+            >
               <button
                 type="button"
                 onClick={hasAccount ? onDashboard : onSignUp}
@@ -4148,6 +4684,7 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis, onUp
                 <button
                   type="button"
                   onClick={onLogin}
+                  className="landing-login-action"
                   style={sx({
                     border: "none",
                     borderBottom: "1px solid rgba(255,255,255,0.14)",
@@ -4415,6 +4952,55 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis, onUp
             ))}
           </div>
         </section>
+      </main>
+    </AppShell>
+  );
+}
+
+function SettingsPage({ boardThemeId, onBoardThemeChange, onBack }) {
+  return (
+    <AppShell view="settings" onHome={onBack}>
+      <main
+        className="settings-page"
+        style={sx({
+          maxWidth: "980px",
+          display: "grid",
+          gap: "34px",
+        })}
+      >
+        <div>
+          <div style={sx({ fontSize: "13px", letterSpacing: ".16em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)", marginBottom: "12px" })}>
+            /settings
+          </div>
+          <h1 style={sx({ margin: 0, fontSize: "42px", color: "#fff", fontWeight: 200 })}>
+            Preferences
+          </h1>
+        </div>
+
+        <DashboardSettings
+          boardThemeId={boardThemeId}
+          onBoardThemeChange={onBoardThemeChange}
+        />
+
+        <button
+          type="button"
+          onClick={onBack}
+          style={sx({
+            justifySelf: "start",
+            background: "transparent",
+            border: "none",
+            borderBottom: "1px solid rgba(255,255,255,0.15)",
+            color: "rgba(255,255,255,0.45)",
+            cursor: "pointer",
+            fontSize: "15px",
+            fontWeight: 200,
+            fontFamily: "inherit",
+            letterSpacing: ".06em",
+            padding: "4px 0",
+          })}
+        >
+          dashboard
+        </button>
       </main>
     </AppShell>
   );
@@ -4841,8 +5427,17 @@ function LoadingPage({ account, onMinimize }) {
     return () => window.clearInterval(intervalId);
   }, []);
 
+  function handleLogoClick() {
+    if (typeof window === "undefined") {
+      onMinimize?.();
+      return;
+    }
+
+    window.dispatchEvent(new CustomEvent(LANDING_NAVIGATION_EVENT));
+  }
+
   return (
-    <div style={styles.app}>
+    <div className="app-shell loading-page" style={styles.app}>
       <style>
         {`
           @keyframes premiumLoadingOrbit {
@@ -4852,10 +5447,10 @@ function LoadingPage({ account, onMinimize }) {
         `}
       </style>
 
-      <div style={styles.header}>
+      <div className="app-shell-header" style={styles.header}>
         <button
           type="button"
-          onClick={onMinimize}
+          onClick={handleLogoClick}
           style={sx({
             ...styles.logo,
             background: "transparent",
@@ -4873,6 +5468,7 @@ function LoadingPage({ account, onMinimize }) {
 
       <button
         type="button"
+        className="loading-close"
         aria-label="minimize loading"
         onClick={onMinimize}
         style={sx({
@@ -4895,6 +5491,7 @@ function LoadingPage({ account, onMinimize }) {
       </button>
 
       <div
+        className="loading-stage"
         style={sx({
           minHeight: "520px",
           display: "flex",
@@ -4966,6 +5563,7 @@ function LoadingPage({ account, onMinimize }) {
       </div>
 
       <div
+        className="loading-progress"
         style={sx({
           position: "fixed",
           left: "56px",
@@ -5164,6 +5762,7 @@ function AccountPage({
       onLogout={onLogout}
     >
       <div
+        className="account-layout"
         style={sx({
           maxWidth: "900px",
           display: "flex",
@@ -5388,6 +5987,7 @@ function UpgradePage({ account, onBack, onUpgraded }) {
   return (
     <AppShell view="upgrade" onHome={onBack}>
       <div
+        className="upgrade-layout"
         style={sx({
           maxWidth: "960px",
           display: "grid",
@@ -5657,7 +6257,7 @@ function ImportPage({ account, onBack, onImported }) {
 
   return (
     <AppShell view="import" onHome={onBack}>
-      <form onSubmit={submit} style={sx({ maxWidth: "980px", display: "grid", gap: "34px" })}>
+      <form className="import-layout" onSubmit={submit} style={sx({ maxWidth: "980px", display: "grid", gap: "34px" })}>
         <div>
           <div style={sx({ fontSize: "13px", letterSpacing: ".16em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)", marginBottom: "12px" })}>
             /import
@@ -5667,9 +6267,10 @@ function ImportPage({ account, onBack, onImported }) {
           </div>
         </div>
 
-        <div style={sx({ display: "grid", gridTemplateColumns: "minmax(280px, 360px) minmax(320px, 1fr)", gap: "34px", alignItems: "start" })}>
+        <div className="import-grid" style={sx({ display: "grid", gridTemplateColumns: "minmax(280px, 360px) minmax(320px, 1fr)", gap: "34px", alignItems: "start" })}>
           <section style={sx({ display: "grid", gap: "14px" })}>
             <div
+              className="allowance-panel"
               style={sx({
                 border: "1px solid rgba(255,255,255,0.14)",
                 background: "rgba(255,255,255,0.035)",
@@ -5679,7 +6280,16 @@ function ImportPage({ account, onBack, onImported }) {
                 gap: "10px",
               })}
             >
-              <span style={sx({ display: "block", fontSize: "22px" })}>{remaining} imports remain</span>
+              <div style={sx({ display: "flex", justifyContent: "space-between", gap: "16px", alignItems: "center" })}>
+                <span style={sx({ display: "block", fontSize: "22px" })}>{remaining} imports remain</span>
+                <VisualDonut
+                  value={remaining}
+                  total={limit}
+                  label="left"
+                  size="72px"
+                  color="rgba(255,255,255,0.72)"
+                />
+              </div>
               <ImportAllowanceMeter remaining={remaining} limit={limit} />
               <span style={sx({ color: "rgba(255,255,255,0.42)", fontSize: "14px", lineHeight: 1.5 })}>
                 {planLabels[plan]} daily allowance: {remaining} of {limit} games available.
@@ -5793,9 +6403,9 @@ function ExplorerResultBar({ white, draws, black }) {
         background: "rgba(255,255,255,0.06)",
       })}
     >
-      <span style={sx({ background: "rgba(235,232,224,0.92)" })} />
+      <span style={sx({ background: "rgba(235,235,235,0.92)" })} />
       <span style={sx({ background: "rgba(165,165,165,0.66)" })} />
-      <span style={sx({ background: "rgba(42,45,50,0.98)" })} />
+      <span style={sx({ background: "rgba(42,42,42,0.98)" })} />
     </div>
   );
 }
@@ -6342,6 +6952,7 @@ function BrowserAnalysisPage({ onHome }) {
   return (
     <AppShell view="analysis-board" onHome={onHome}>
       <div
+        className="sandbox-layout"
         style={sx({
           maxWidth: "1340px",
           display: "grid",
@@ -6350,7 +6961,7 @@ function BrowserAnalysisPage({ onHome }) {
           alignItems: "start",
         })}
       >
-        <aside style={sx({ display: "grid", gap: "22px", borderRight: "1px solid rgba(255,255,255,0.06)", paddingRight: "22px" })}>
+        <aside className="sandbox-settings-panel" style={sx({ display: "grid", gap: "22px", borderRight: "1px solid rgba(255,255,255,0.06)", paddingRight: "22px" })}>
           <div>
             <div style={sx({ fontSize: "11px", letterSpacing: ".16em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)", marginBottom: "10px" })}>
               standalone board
@@ -6432,7 +7043,7 @@ function BrowserAnalysisPage({ onHome }) {
           ) : null}
         </aside>
 
-        <main style={sx({ display: "grid", gap: "14px", justifyItems: "stretch" })}>
+        <main className="board-column sandbox-board-column" style={sx({ display: "grid", gap: "14px", justifyItems: "stretch" })}>
           <div style={sx({ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "16px" })}>
             <span style={sx({ color: "rgba(255,255,255,0.42)", fontSize: "13px" })}>
               {fenParts(displayedFen).turn === "w" ? "white" : "black"} to move
@@ -6441,7 +7052,7 @@ function BrowserAnalysisPage({ onHome }) {
               {moves.length} move{moves.length === 1 ? "" : "s"}
             </span>
           </div>
-          <div style={sx({ display: "grid", gridTemplateColumns: "minmax(0, 620px) 30px", gap: "8px", alignItems: "stretch" })}>
+          <div className="board-with-eval" style={sx({ display: "grid", gridTemplateColumns: "minmax(0, 620px) 30px", gap: "8px", alignItems: "stretch" })}>
             <Board
               fen={displayedFen}
               annotation={activeAnnotation}
@@ -6454,7 +7065,7 @@ function BrowserAnalysisPage({ onHome }) {
           </div>
         </main>
 
-        <aside style={sx({ display: "grid", gap: "18px", borderLeft: "1px solid rgba(255,255,255,0.06)", paddingLeft: "22px" })}>
+        <aside className="sandbox-lines-panel" style={sx({ display: "grid", gap: "18px", borderLeft: "1px solid rgba(255,255,255,0.06)", paddingLeft: "22px" })}>
           <StockfishLinesPanel
             fen={displayedFen}
             onPlayLineMove={handlePlayEngineLine}
@@ -6683,6 +7294,7 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
   return (
     <AppShell view="analysis" onHome={onHome}>
       <div
+        className="analysis-layout"
         style={sx({
           maxWidth: "1540px",
           display: "grid",
@@ -6692,7 +7304,7 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
         })}
       >
         <div
-          className="analysis-move-list"
+          className="analysis-panel analysis-left-panel analysis-move-list"
           style={sx({
             borderRight: "1px solid rgba(255,255,255,0.06)",
             paddingRight: "20px",
@@ -6752,7 +7364,7 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
           )}
         </div>
 
-        <div style={sx({ display: "flex", flexDirection: "column", gap: "12px" })}>
+        <div className="board-column analysis-board-column" style={sx({ display: "flex", flexDirection: "column", gap: "12px" })}>
           <div>
             <div style={sx({ fontSize: "11px", letterSpacing: ".14em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)", marginBottom: "6px" })}>
               {prettifyOpeningName(game)}
@@ -6763,6 +7375,7 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
           </div>
 
           <div
+            className="board-with-eval"
             style={sx({
               display: "grid",
               gridTemplateColumns: "minmax(0, 620px) 30px",
@@ -6792,7 +7405,7 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
         </div>
 
         <div
-          className="analysis-move-list"
+          className="analysis-panel analysis-right-panel analysis-move-list"
           style={sx({
             borderLeft: "1px solid rgba(255,255,255,0.06)",
             paddingLeft: "18px",
@@ -6837,6 +7450,16 @@ export default function App() {
   const [latestGame, setLatestGame] = useState(null);
   const [selectedPly, setSelectedPly] = useState(null);
   const [billingNotice, setBillingNotice] = useState("");
+  const [boardThemeId, setBoardThemeId] = useState(readStoredBoardTheme);
+
+  function handleBoardThemeChange(themeId) {
+    const nextThemeId = boardThemeById(themeId).id;
+    setBoardThemeId(nextThemeId);
+
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(BOARD_THEME_STORAGE_KEY, nextThemeId);
+    }
+  }
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -6858,14 +7481,19 @@ export default function App() {
     const handleLandingNavigation = () => {
       setView("landing");
     };
+    const handleUpgradeNavigation = () => {
+      setView(readStoredAccount().username ? "upgrade" : "signup");
+    };
     const handlePopState = () => {
       setView(initialViewForAccount(readStoredAccount()));
     };
 
     window.addEventListener(LANDING_NAVIGATION_EVENT, handleLandingNavigation);
+    window.addEventListener(UPGRADE_NAVIGATION_EVENT, handleUpgradeNavigation);
     window.addEventListener("popstate", handlePopState);
     return () => {
       window.removeEventListener(LANDING_NAVIGATION_EVENT, handleLandingNavigation);
+      window.removeEventListener(UPGRADE_NAVIGATION_EVENT, handleUpgradeNavigation);
       window.removeEventListener("popstate", handlePopState);
     };
   }, []);
@@ -7373,6 +8001,16 @@ export default function App() {
     );
   }
 
+  if (view === "settings" && account.username) {
+    return (
+      <SettingsPage
+        boardThemeId={boardThemeId}
+        onBoardThemeChange={handleBoardThemeChange}
+        onBack={() => setView(homeView())}
+      />
+    );
+  }
+
   if (view === "upgrade") {
     return (
       <UpgradePage
@@ -7451,6 +8089,7 @@ export default function App() {
       onLogout={handleLogout}
     >
       <div
+        className="dashboard-layout"
         style={sx({
           maxWidth: "1240px",
           display: "grid",
@@ -7468,12 +8107,14 @@ export default function App() {
           onLogin={() => setView("login")}
           onAccount={() => setView("account")}
           onImport={() => setView("import")}
+          onSettings={() => setView("settings")}
           onUpgrade={() => setView("upgrade")}
           onLogout={handleLogout}
         />
 
-        <main style={sx({ minWidth: 0 })}>
+        <main className="dashboard-main" style={sx({ minWidth: 0 })}>
           <div
+            className="dashboard-heading"
             style={sx({
               display: "flex",
               alignItems: "baseline",
