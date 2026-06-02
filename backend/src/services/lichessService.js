@@ -46,8 +46,8 @@ export async function fetchLichessGames(username, options = {}) {
     params.set("until", String(Date.now()));
   }
 
-  if (options.gameCount) {
-    params.set("max", String(options.gameCount));
+  if (options.fetchLimit || options.gameCount) {
+    params.set("max", String(options.fetchLimit || options.gameCount));
   }
 
   const bundle = await fetchText(`https://lichess.org/api/games/user/${username}?${params.toString()}`, {

@@ -325,8 +325,8 @@ textarea {
     0
   );
   transition:
-    transform 220ms cubic-bezier(.22, .61, .36, 1),
-    opacity 130ms ease-out;
+    transform 70ms cubic-bezier(.2, .9, .25, 1),
+    opacity 55ms ease-out;
   will-change: transform;
 }
 
@@ -341,8 +341,8 @@ textarea {
     )
     scale(0.92);
   transition:
-    transform 130ms ease-out,
-    opacity 130ms ease-out;
+    transform 55ms ease-out,
+    opacity 55ms ease-out;
 }
 
 .chess-board-piece.is-drag-source {

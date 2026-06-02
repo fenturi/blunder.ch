@@ -8,6 +8,11 @@ import { analysisQueue } from "../queue.js";
 import { logInfo } from "../utils/logger.js";
 
 const RECENT_ANALYSIS_LIMIT = 5;
+const MAX_IMPORT_CANDIDATES = 100;
+
+function candidateLimitForGameCount(gameCount) {
+  return Math.max(gameCount, Math.min(MAX_IMPORT_CANDIDATES, gameCount * 20));
+}
 
 function sinceForDateRange(dateRange) {
   const days = {
@@ -84,7 +89,14 @@ export async function importGamesForUser({
 }) {
   await setImportStatus(importId, "running");
 
-  const importOptions = { gameTypes, gameCount, dateRange, plan };
+  const requestedGameCount = Math.max(1, Number(gameCount) || RECENT_ANALYSIS_LIMIT);
+  const importOptions = {
+    gameTypes,
+    gameCount: requestedGameCount,
+    fetchLimit: candidateLimitForGameCount(requestedGameCount),
+    dateRange,
+    plan,
+  };
   const rawGames =
     provider === "chess.com"
       ? await fetchChessDotComGames(username, importOptions)
@@ -121,10 +133,10 @@ export async function importGamesForUser({
 
   let inserted = 0;
   let duplicates = 0;
+  let processed = 0;
 
-  const selectedGames = filteredGames.slice(0, gameCount);
-
-  for (const game of selectedGames) {
+  for (const game of filteredGames) {
+    if (inserted >= requestedGameCount) break;
 
     const record = await upsertGame({
       importId,
@@ -140,6 +152,7 @@ export async function importGamesForUser({
       timeControl: game.timeControl,
       sourceUrl: game.sourceUrl,
     });
+    processed += 1;
 
     if (record.inserted) {
       inserted += 1;
@@ -157,7 +170,8 @@ export async function importGamesForUser({
   }
 
   await setImportStatus(importId, "completed", {
-    totalGames: selectedGames.length,
+    gameCount: inserted,
+    totalGames: processed,
     importedGames: inserted,
     duplicateGames: duplicates,
     failedReason: skipped > 0 ? `Skipped ${skipped} malformed PGN(s)` : null,

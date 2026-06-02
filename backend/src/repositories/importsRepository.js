@@ -40,10 +40,11 @@ export async function setImportStatus(importId, status, patch = {}) {
     update imports
     set status = $2,
         provider_job_id = coalesce($3, provider_job_id),
-        total_games = coalesce($4, total_games),
-        imported_games = coalesce($5, imported_games),
-        duplicate_games = coalesce($6, duplicate_games),
-        failed_reason = $7,
+        game_count = coalesce($4, game_count),
+        total_games = coalesce($5, total_games),
+        imported_games = coalesce($6, imported_games),
+        duplicate_games = coalesce($7, duplicate_games),
+        failed_reason = $8,
         finished_at = case when $2 in ('completed', 'failed') then now() else finished_at end,
         updated_at = now()
     where id = $1
@@ -54,6 +55,7 @@ export async function setImportStatus(importId, status, patch = {}) {
     importId,
     status,
     patch.providerJobId ?? null,
+    patch.gameCount ?? null,
     patch.totalGames ?? null,
     patch.importedGames ?? null,
     patch.duplicateGames ?? null,
