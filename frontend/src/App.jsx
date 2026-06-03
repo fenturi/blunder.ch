@@ -57,8 +57,8 @@ const classificationIcons = {
   best: moveIcon1,
   good: moveIcon1,
   ok: moveIcon1,
-  inaccuracy: moveIcon5,
-  mistake: moveIcon4,
+  inaccuracy: moveIcon4,
+  mistake: moveIcon5,
   blunder: moveIcon3,
   miss: moveIcon3,
 };
