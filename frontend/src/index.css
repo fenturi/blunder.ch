@@ -356,6 +356,18 @@ textarea {
     scale(0.94);
 }
 
+.analysis-board-column .chess-board-piece {
+  transition:
+    transform 130ms cubic-bezier(.22, .61, .36, 1),
+    opacity 90ms ease-out;
+}
+
+.analysis-board-column .chess-board-piece.is-exiting {
+  transition:
+    transform 90ms ease-out,
+    opacity 90ms ease-out;
+}
+
 .chess-board-piece img {
   width: 82%;
   height: 82%;

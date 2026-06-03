@@ -2061,6 +2061,8 @@ function MoveListCell({ annotation, activePly, onSelectPly }) {
   const isPending = isClassificationPending(annotation);
   const displayClassification = visualClassification(annotation);
   const classificationTitle = formatClassification(displayClassification);
+  const classificationIcon = classificationIcons[displayClassification];
+  const classificationMark = classificationSymbol(displayClassification);
   const accent = isPending
     ? "rgba(255,255,255,0.34)"
     : displayClassification === "blunder"
@@ -2076,27 +2078,64 @@ function MoveListCell({ annotation, activePly, onSelectPly }) {
       type="button"
       onClick={() => onSelectPly(annotation.ply)}
       title={`${annotation.san}: ${classificationTitle}`}
-        style={sx({
-          minHeight: "30px",
-          background: isActive ? "rgba(255,255,255,0.07)" : "transparent",
-        border: "none",
+      style={sx({
+        minHeight: "30px",
+        background: isActive ? "rgba(255,255,255,0.09)" : "rgba(255,255,255,0.032)",
+        border: isActive ? "1px solid rgba(255,255,255,0.18)" : "1px solid rgba(255,255,255,0.075)",
+        borderRadius: "999px",
         color: accent,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "stretch",
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr) 18px",
+        alignItems: "center",
         justifyContent: "center",
-          gap: "3px",
-          padding: "5px 8px",
+        gap: "6px",
+        padding: "4px 7px 4px 11px",
         cursor: "pointer",
         textAlign: "left",
         fontFamily: "inherit",
       })}
     >
-      <span style={sx({ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" })}>
-        <span style={sx({ fontSize: "13px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" })}>
-          {annotation.san}
-        </span>
-        {isPending ? <ClassificationSpinner size="12px" /> : null}
+      <span
+        style={sx({
+          fontSize: "13px",
+          minWidth: 0,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        })}
+      >
+        {annotation.san}
+      </span>
+      <span
+        aria-label={classificationTitle}
+        style={sx({
+          width: "18px",
+          height: "18px",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "rgba(255,255,255,0.62)",
+          flex: "0 0 auto",
+          overflow: "hidden",
+        })}
+      >
+        {isPending ? (
+          <ClassificationSpinner size="14px" />
+        ) : classificationIcon ? (
+          <img
+            src={classificationIcon}
+            alt=""
+            draggable="false"
+            style={sx({
+              width: "15px",
+              height: "15px",
+              objectFit: "contain",
+              filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.35))",
+            })}
+          />
+        ) : (
+          <span style={sx({ fontSize: "10px", lineHeight: 1 })}>{classificationMark}</span>
+        )}
       </span>
     </button>
   );
