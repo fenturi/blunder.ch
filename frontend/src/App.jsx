@@ -11,12 +11,25 @@ import wN from "./assets/wN.webp";
 import wP from "./assets/wP.webp";
 import wQ from "./assets/wQ.webp";
 import wR from "./assets/wR.webp";
+import modernBB from "./assets/second piece set/bB.svg";
+import modernBK from "./assets/second piece set/bK.svg";
+import modernBN from "./assets/second piece set/bN.svg";
+import modernBP from "./assets/second piece set/bP.svg";
+import modernBQ from "./assets/second piece set/bQ.svg";
+import modernBR from "./assets/second piece set/bR.svg";
+import modernWB from "./assets/second piece set/wB.svg";
+import modernWK from "./assets/second piece set/wK.svg";
+import modernWN from "./assets/second piece set/wN.svg";
+import modernWP from "./assets/second piece set/wP.svg";
+import modernWQ from "./assets/second piece set/wQ.svg";
+import modernWR from "./assets/second piece set/wR.svg";
 import moveIcon1 from "./assets/1.png";
 import moveIcon3 from "./assets/3.png";
 import moveIcon4 from "./assets/4.png";
 import moveIcon5 from "./assets/5.png";
 import moveIcon6 from "./assets/6.png";
 import moveIcon7 from "./assets/7.png";
+import brandIcon from "./assets/icon.png";
 import DevPanel from "./components/DevPanel.jsx";
 import SignupWizard from "./components/SignupWizard.jsx";
 import { apiUrl } from "./lib/api.js";
@@ -24,6 +37,7 @@ import { apiUrl } from "./lib/api.js";
 const UI_SCALE = 1.1;
 const ACCOUNT_STORAGE_KEY = "blunder.account";
 const BOARD_THEME_STORAGE_KEY = "blunder.boardTheme";
+const PIECE_SET_STORAGE_KEY = "blunder.pieceSet";
 const DISCORD_INVITE_URL = "https://discord.gg/cgDt8EksRc";
 const LANDING_NAVIGATION_EVENT = "blunder:navigate-landing";
 const UPGRADE_NAVIGATION_EVENT = "blunder:navigate-upgrade";
@@ -36,20 +50,44 @@ const philosophyQuotes = [
   "Clarity begins where hurry ends.",
 ];
 
-const pieceImages = {
-  K: wK,
-  Q: wQ,
-  R: wR,
-  B: wB,
-  N: wN,
-  P: wP,
-  k: bK,
-  q: bQ,
-  r: bR,
-  b: bB,
-  n: bN,
-  p: bP,
-};
+const pieceSetPresets = [
+  {
+    id: "modern",
+    label: "Modern",
+    images: {
+      K: modernWK,
+      Q: modernWQ,
+      R: modernWR,
+      B: modernWB,
+      N: modernWN,
+      P: modernWP,
+      k: modernBK,
+      q: modernBQ,
+      r: modernBR,
+      b: modernBB,
+      n: modernBN,
+      p: modernBP,
+    },
+  },
+  {
+    id: "classic",
+    label: "Classic",
+    images: {
+      K: wK,
+      Q: wQ,
+      R: wR,
+      B: wB,
+      N: wN,
+      P: wP,
+      k: bK,
+      q: bQ,
+      r: bR,
+      b: bB,
+      n: bN,
+      p: bP,
+    },
+  },
+];
 
 const classificationIcons = {
   book: moveIcon7,
@@ -66,23 +104,13 @@ const classificationIcons = {
 const boardColorPresets = [
   {
     id: "default",
-    label: "Default",
-    light: "#d1d1d1",
-    dark: "#3d3d3d",
-    board: "#101010",
-    border: "rgba(255,255,255,0.08)",
-    coordinateLight: "rgba(0,0,0,0.45)",
-    coordinateDark: "rgba(255,255,255,0.45)",
-  },
-  {
-    id: "icy-blue",
-    label: "Icy blue",
-    light: "#dce8ee",
-    dark: "#6f8796",
-    board: "#0e1317",
-    border: "rgba(220,232,238,0.2)",
-    coordinateLight: "rgba(10,16,20,0.52)",
-    coordinateDark: "rgba(255,255,255,0.62)",
+    label: "Blunder blue",
+    light: "#b9dff0",
+    dark: "#39718a",
+    board: "#0b1114",
+    border: "rgba(125,211,252,0.24)",
+    coordinateLight: "rgba(7,8,8,0.5)",
+    coordinateDark: "rgba(244,244,245,0.62)",
   },
   {
     id: "midnight",
@@ -244,6 +272,16 @@ function readStoredBoardTheme() {
 
   const storedTheme = window.localStorage.getItem(BOARD_THEME_STORAGE_KEY);
   return boardThemeById(storedTheme).id;
+}
+
+function pieceSetById(pieceSetId) {
+  return pieceSetPresets.find((preset) => preset.id === pieceSetId) || pieceSetPresets[0];
+}
+
+function readStoredPieceSet() {
+  if (typeof window === "undefined") return pieceSetPresets[0].id;
+
+  return pieceSetById(window.localStorage.getItem(PIECE_SET_STORAGE_KEY)).id;
 }
 
 function initialViewForAccount(account) {
@@ -1580,6 +1618,7 @@ function Board({
   const files = ["a", "b", "c", "d", "e", "f", "g", "h"];
   const ranks = ["8", "7", "6", "5", "4", "3", "2", "1"];
   const boardTheme = boardThemeById(readStoredBoardTheme());
+  const pieceImages = pieceSetById(readStoredPieceSet()).images;
   const isPendingClassification = isClassificationPending(annotation);
   const displayClassification = visualClassification(annotation);
   const badgeSquare = squareIndexes(inferMoveTargetSquare(annotation));
@@ -2432,6 +2471,7 @@ function GameSummaryPanel({ game, account, onSelectPly, onBoardFocus }) {
 
   return (
     <div
+      className="rail-metric"
       style={sx({
         display: "grid",
         gap: "18px",
@@ -3293,7 +3333,12 @@ function BoardThemeSwatch({ preset }) {
   );
 }
 
-function DashboardSettings({ boardThemeId, onBoardThemeChange }) {
+function DashboardSettings({
+  boardThemeId,
+  onBoardThemeChange,
+  pieceSetId,
+  onPieceSetChange,
+}) {
   return (
     <section className="dashboard-settings">
       <div className="dashboard-settings-header">
@@ -3325,13 +3370,27 @@ function DashboardSettings({ boardThemeId, onBoardThemeChange }) {
           <span>pieces</span>
           <span>set</span>
         </div>
-        <button type="button" className="piece-set-option is-active" aria-pressed="true">
-          <span className="piece-set-preview">
-            <img src={wN} alt="" draggable="false" />
-            <img src={bN} alt="" draggable="false" />
-          </span>
-          <span>default</span>
-        </button>
+        <div className="piece-set-grid">
+          {pieceSetPresets.map((preset) => {
+            const isActive = preset.id === pieceSetId;
+
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => onPieceSetChange(preset.id)}
+                className={isActive ? "piece-set-option is-active" : "piece-set-option"}
+                aria-pressed={isActive}
+              >
+                <span className="piece-set-preview">
+                  <img src={preset.images.N} alt="" draggable="false" />
+                  <img src={preset.images.n} alt="" draggable="false" />
+                </span>
+                <span>{preset.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </section>
   );
@@ -3339,23 +3398,9 @@ function DashboardSettings({ boardThemeId, onBoardThemeChange }) {
 
 function LogoMark() {
   return (
-    <span style={sx({ display: "inline-flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap" })}>
-      <span>blunder.ch</span>
-      <span
-        style={sx({
-          border: "1px solid rgba(255,255,255,0.18)",
-          color: "rgba(255,255,255,0.5)",
-          fontSize: "11px",
-          lineHeight: 1,
-          letterSpacing: ".12em",
-          textTransform: "uppercase",
-          padding: "4px 6px",
-          borderRadius: "4px",
-          transform: "translateY(-7px)",
-        })}
-      >
-        beta
-      </span>
+    <span className="brand-mark" style={sx({ display: "inline-flex", alignItems: "center", gap: "10px" })}>
+      <img className="brand-favicon" src={brandIcon} alt="" aria-hidden="true" />
+      <span className="brand-name">blunder.ch</span>
     </span>
   );
 }
@@ -3395,6 +3440,7 @@ function MiniBoard({ fen }) {
 
   const board = parseFenBoard(fen);
   const boardTheme = boardThemeById(readStoredBoardTheme());
+  const pieceImages = pieceSetById(readStoredPieceSet()).images;
 
   return (
     <div
@@ -3448,7 +3494,7 @@ function MiniBoard({ fen }) {
   );
 }
 
-function IssueRow({ issue, onSelect }) {
+function IssueRow({ issue, phase, onSelect }) {
   return (
     <button
       type="button"
@@ -3468,6 +3514,7 @@ function IssueRow({ issue, onSelect }) {
       })}
     >
       <MiniBoard fen={issue.endingFen} />
+      <span className="issue-phase-badge">{phase}</span>
       <div style={sx({ display: "grid", gap: "5px", minWidth: 0 })}>
         <div style={sx({ fontSize: "13px", lineHeight: 1.25, color: "rgba(255,255,255,0.56)", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" })}>
           {issue.opening}
@@ -3491,6 +3538,10 @@ function IssueRow({ issue, onSelect }) {
         <span>{issue.moves} moves</span>
         <span style={sx({ textAlign: "right" })}>{formatPlayedDate(issue.playedAt)}</span>
       </div>
+      <div className="issue-mistake-line">
+        <span />
+        Review the critical {phase.toLowerCase()} moment
+      </div>
     </button>
   );
 }
@@ -3504,10 +3555,11 @@ function Section({ phase, issues, collapsed, onToggle, isConnected, loading, onS
     : "connect account to load";
 
   return (
-    <div>
+    <section className="phase-section">
       <button
         type="button"
         onClick={onToggle}
+        className="phase-section-header"
         style={sx({
           ...styles.sectionHeader,
           background: "transparent",
@@ -3518,8 +3570,17 @@ function Section({ phase, issues, collapsed, onToggle, isConnected, loading, onS
           textAlign: "left",
         })}
       >
-        <span style={styles.phaseLabel}>{phase}</span>
-        <span style={styles.helperText}>{helperLabel}</span>
+        <span className="phase-title-wrap">
+          <span style={styles.phaseLabel}>{phase}</span>
+          <span className="phase-description">
+            {phase === "Opening"
+              ? "Preparation, development, and early tactical decisions."
+              : phase === "Middlegame"
+                ? "Tactical swings, plans, and piece coordination."
+                : "Conversions, king activity, and pawn-race decisions."}
+          </span>
+        </span>
+        <span className="phase-count" style={styles.helperText}>{helperLabel}</span>
         <span style={sx({ ...styles.helperText, marginLeft: "auto", letterSpacing: ".12em" })}>
           {collapsed ? "expand" : "hide"}
         </span>
@@ -3536,7 +3597,7 @@ function Section({ phase, issues, collapsed, onToggle, isConnected, loading, onS
         >
           {hasData
             ? issues.map((issue, index) => (
-              <IssueRow key={issue.id} issue={issue} index={index} onSelect={onSelectIssue} />
+              <IssueRow key={issue.id} issue={issue} phase={phase} index={index} onSelect={onSelectIssue} />
             ))
             : isConnected
               ? (
@@ -3556,7 +3617,7 @@ function Section({ phase, issues, collapsed, onToggle, isConnected, loading, onS
               : [0, 1].map((index) => <PlaceholderRow key={`${phase}-${index}`} index={index} />)}
         </div>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -3615,6 +3676,7 @@ function AppShell({
   children,
   onBack,
   onHome,
+  headerActions = null,
 }) {
   const copyrightYear = new Date().getFullYear();
   const shellAccount = readStoredAccount();
@@ -3653,7 +3715,7 @@ function AppShell({
           <LogoMark />
         </button>
         <div className="app-shell-actions" style={sx({ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", justifyContent: "flex-end" })}>
-          {showUpgradeAction ? (
+          {showUpgradeAction && !headerActions ? (
             <button
               type="button"
               onClick={handleUpgradeClick}
@@ -3680,6 +3742,7 @@ function AppShell({
               onBack={onBack}
             />
           ) : null}
+          {headerActions}
         </div>
       </div>
 
@@ -3735,6 +3798,7 @@ function AppShell({
 function RailMetric({ label, value }) {
   return (
     <div
+      className="rail-metric"
       style={sx({
         display: "grid",
         gap: "6px",
@@ -3772,6 +3836,7 @@ function RailAction({ children, onClick, emphasis = false, bright = false }) {
     <button
       type="button"
       onClick={onClick}
+      className={`rail-action${emphasis ? " is-emphasis" : ""}${bright ? " is-bright" : ""}`}
       style={sx({
         width: "100%",
         minHeight: "38px",
@@ -3793,11 +3858,8 @@ function RailAction({ children, onClick, emphasis = false, bright = false }) {
   );
 }
 
-function DashboardRail({
+function DashboardWorkspaceNav({
   account,
-  summary,
-  issueCount,
-  loading,
   onSignUp,
   onLogin,
   onAccount,
@@ -3807,63 +3869,18 @@ function DashboardRail({
   onLogout,
 }) {
   const hasAccount = !!account.username;
-  const queued = summaryValue(summary, "queuedGames", "queued_games");
-  const running = summaryValue(summary, "runningGames", "running_games");
 
   return (
-    <aside
-      className="dashboard-rail"
-      style={sx({
-        borderRight: "1px solid rgba(255,255,255,0.06)",
-        paddingRight: "30px",
-        minHeight: "560px",
-        position: "sticky",
-        top: "32px",
-      })}
-    >
-      <div
-        style={sx({
-          fontSize: "12px",
-          letterSpacing: ".18em",
-          textTransform: "uppercase",
-          color: "rgba(255,255,255,0.25)",
-          marginBottom: "22px",
-        })}
-      >
-        workspace
+    <nav className="dashboard-workspace-nav" aria-label="Workspace navigation">
+      <div className="dashboard-workspace-identity">
+        <span className="dashboard-rail-label">Workspace</span>
+        <span className="dashboard-rail-user">{hasAccount ? account.username : "Connect account"}</span>
+        <span className="dashboard-rail-platform">
+          {hasAccount ? `${account.platform}${account.isPremium ? " / premium" : ""}` : "Login or create an account"}
+        </span>
       </div>
 
-      <div
-        style={sx({
-          fontSize: "31px",
-          lineHeight: 1.12,
-          fontWeight: 200,
-          color: hasAccount ? "#fff" : "rgba(255,255,255,0.5)",
-          marginBottom: "8px",
-          wordBreak: "break-word",
-        })}
-      >
-        {hasAccount ? account.username : "connect"}
-      </div>
-
-      <div
-        style={sx({
-          color: "rgba(255,255,255,0.27)",
-          fontSize: "14px",
-          marginBottom: "28px",
-        })}
-      >
-        {hasAccount ? `${account.platform}${account.isPremium ? " / premium" : ""}` : "login or create an account"}
-      </div>
-
-      <div style={sx({ marginBottom: "28px" })}>
-        <RailMetric label="games" value={`${summaryValue(summary, "totalGames", "total_games")} loaded`} />
-        <RailMetric label="analysis" value={loading ? "refreshing" : `${summaryValue(summary, "analyzedGames", "analyzed_games")} complete`} />
-        <RailMetric label="queue" value={`${queued + running} active`} />
-        <RailMetric label="listed games" value={issueCount} />
-      </div>
-
-      <div style={sx({ display: "grid", gap: "10px" })}>
+      <div className="dashboard-rail-actions" style={sx({ display: "grid", gap: "10px" })}>
         {hasAccount ? (
           <>
             <RailAction onClick={onImport} emphasis>import</RailAction>
@@ -3881,7 +3898,7 @@ function DashboardRail({
           </>
         )}
       </div>
-    </aside>
+    </nav>
   );
 }
 
@@ -4745,6 +4762,11 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis, onUp
                 <span style={sx({ color: "rgba(255,255,255,0.28)", fontSize: "13px" })}>{account.username}</span>
               ) : null}
             </div>
+            <div className="landing-status-row">
+              <span>12 games analyzed</span>
+              <span>Stockfish review</span>
+              <span>Opening, middlegame, endgame patterns</span>
+            </div>
           </div>
           <div
             className="landing-hero-preview"
@@ -4996,7 +5018,13 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis, onUp
   );
 }
 
-function SettingsPage({ boardThemeId, onBoardThemeChange, onBack }) {
+function SettingsPage({
+  boardThemeId,
+  onBoardThemeChange,
+  pieceSetId,
+  onPieceSetChange,
+  onBack,
+}) {
   return (
     <AppShell view="settings" onHome={onBack}>
       <main
@@ -5019,6 +5047,8 @@ function SettingsPage({ boardThemeId, onBoardThemeChange, onBack }) {
         <DashboardSettings
           boardThemeId={boardThemeId}
           onBoardThemeChange={onBoardThemeChange}
+          pieceSetId={pieceSetId}
+          onPieceSetChange={onPieceSetChange}
         />
 
         <button
@@ -5048,7 +5078,9 @@ function SettingsPage({ boardThemeId, onBoardThemeChange, onBack }) {
 function SignUpPage({ onBack, onImported, onRegistered }) {
   return (
     <AppShell view="signup" onBack={onBack} onHome={onBack}>
-      <SignupWizard onImported={onImported} onRegistered={onRegistered} />
+      <main className="auth-page auth-page-signup">
+        <SignupWizard onImported={onImported} onRegistered={onRegistered} />
+      </main>
     </AppShell>
   );
 }
@@ -5122,7 +5154,7 @@ function LoginPage({ onBack, onLoggedIn }) {
 
   return (
     <AppShell view="login" onBack={onBack} onHome={onBack}>
-      <form onSubmit={handleSubmit} style={sx({ maxWidth: "420px" })}>
+      <form className="auth-page auth-page-login" onSubmit={handleSubmit} style={sx({ maxWidth: "420px" })}>
         <p
           style={sx({
             fontSize: "14px",
@@ -5287,6 +5319,7 @@ function DevResetPage({ onHome, onResetComplete }) {
   return (
     <AppShell view="dev" onHome={onHome}>
       <main
+        className="dev-page"
         style={sx({
           maxWidth: "720px",
           display: "grid",
@@ -7332,6 +7365,19 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
 
   return (
     <AppShell view="analysis" onHome={onHome}>
+      <header className="analysis-game-header">
+        <div>
+          <span className="analysis-game-eyebrow">Game review</span>
+          <h1>{prettifyOpeningName(game)}</h1>
+          <p>{game.white_player} vs {game.black_player}</p>
+        </div>
+        <div className="analysis-game-meta">
+          <span>{game.result || "--"}</span>
+          <span>{game.annotations.length} half-moves</span>
+          <span>{formatPlayedDate(game.played_at)}</span>
+          <span>{formatClassification(currentClassification)} review</span>
+        </div>
+      </header>
       <div
         className="analysis-layout"
         style={sx({
@@ -7404,12 +7450,15 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
         </div>
 
         <div className="board-column analysis-board-column" style={sx({ display: "flex", flexDirection: "column", gap: "12px" })}>
-          <div>
-            <div style={sx({ fontSize: "11px", letterSpacing: ".14em", textTransform: "uppercase", color: "rgba(255,255,255,0.25)", marginBottom: "6px" })}>
-              {prettifyOpeningName(game)}
+          <div className="analysis-current-move">
+            <div>
+              <span>Current move</span>
+              <strong>{currentAnnotation?.move_index || "--"}. {currentAnnotation?.san || "--"}</strong>
             </div>
-            <div style={sx({ fontSize: "18px", color: "rgba(255,255,255,0.58)" })}>
-              {game.white_player} vs {game.black_player}
+            <div className={`analysis-classification is-${currentClassification}`}>
+              {formatClassification(currentClassification)}
+              <span>{formatCpLoss(currentAnnotation)} pawns</span>
+              <span>{currentAnnotation?.game_phase || "analysis"}</span>
             </div>
           </div>
 
@@ -7490,6 +7539,7 @@ export default function App() {
   const [selectedPly, setSelectedPly] = useState(null);
   const [billingNotice, setBillingNotice] = useState("");
   const [boardThemeId, setBoardThemeId] = useState(readStoredBoardTheme);
+  const [pieceSetId, setPieceSetId] = useState(readStoredPieceSet);
 
   function handleBoardThemeChange(themeId) {
     const nextThemeId = boardThemeById(themeId).id;
@@ -7497,6 +7547,15 @@ export default function App() {
 
     if (typeof window !== "undefined") {
       window.localStorage.setItem(BOARD_THEME_STORAGE_KEY, nextThemeId);
+    }
+  }
+
+  function handlePieceSetChange(nextPieceSetId) {
+    const resolvedPieceSetId = pieceSetById(nextPieceSetId).id;
+    setPieceSetId(resolvedPieceSetId);
+
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(PIECE_SET_STORAGE_KEY, resolvedPieceSetId);
     }
   }
 
@@ -8045,6 +8104,8 @@ export default function App() {
       <SettingsPage
         boardThemeId={boardThemeId}
         onBoardThemeChange={handleBoardThemeChange}
+        pieceSetId={pieceSetId}
+        onPieceSetChange={handlePieceSetChange}
         onBack={() => setView(homeView())}
       />
     );
@@ -8117,6 +8178,8 @@ export default function App() {
 
   const issueCount = Object.values(dashboard).flat().length;
   const hasAnyData = issueCount > 0;
+  const queuedGames = summaryValue(dashboardSummary, "queuedGames", "queued_games");
+  const runningGames = summaryValue(dashboardSummary, "runningGames", "running_games");
 
   return (
     <AppShell
@@ -8126,22 +8189,9 @@ export default function App() {
       onBack={() => setView("dash")}
       onHome={() => setView(homeView())}
       onLogout={handleLogout}
-    >
-      <div
-        className="dashboard-layout"
-        style={sx({
-          maxWidth: "1240px",
-          display: "grid",
-          gridTemplateColumns: "260px minmax(0, 1fr)",
-          gap: "46px",
-          alignItems: "start",
-        })}
-      >
-        <DashboardRail
+      headerActions={(
+        <DashboardWorkspaceNav
           account={account}
-          summary={dashboardSummary}
-          issueCount={issueCount}
-          loading={dashboardLoading}
           onSignUp={() => setView("signup")}
           onLogin={() => setView("login")}
           onAccount={() => setView("account")}
@@ -8150,7 +8200,18 @@ export default function App() {
           onUpgrade={() => setView("upgrade")}
           onLogout={handleLogout}
         />
-
+      )}
+    >
+      <div
+        className="dashboard-layout"
+        style={sx({
+          maxWidth: "1240px",
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 1fr)",
+          gap: "30px",
+          alignItems: "start",
+        })}
+      >
         <main className="dashboard-main" style={sx({ minWidth: 0 })}>
           <div
             className="dashboard-heading"
@@ -8183,8 +8244,11 @@ export default function App() {
                   fontWeight: 200,
                 })}
               >
-                analyzed games
+                Latest analysis
               </div>
+              <p className="dashboard-subheading">
+                Your reviewed games, grouped by where the critical decision happened.
+              </p>
             </div>
             <div
               style={sx({
@@ -8198,7 +8262,20 @@ export default function App() {
             </div>
           </div>
 
-          <div style={styles.sections}>
+          <div className="dashboard-metrics">
+            <RailMetric
+              label="Games loaded"
+              value={summaryValue(dashboardSummary, "totalGames", "total_games")}
+            />
+            <RailMetric
+              label="Analysis complete"
+              value={dashboardLoading ? "Refreshing" : summaryValue(dashboardSummary, "analyzedGames", "analyzed_games")}
+            />
+            <RailMetric label="Queue active" value={queuedGames + runningGames} />
+            <RailMetric label="Listed games" value={issueCount} />
+          </div>
+
+          <div className="dashboard-sections" style={styles.sections}>
             {phases.map((phase) => (
               <Section
                 key={phase}

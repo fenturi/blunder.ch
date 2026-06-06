@@ -64,6 +64,7 @@ function PlanCard({ plan, selected, onSelect }) {
     <button
       type="button"
       onClick={onSelect}
+      className={selected ? "signup-plan-card is-selected" : "signup-plan-card"}
       style={{
         width: "100%",
         background: selected ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.025)",
@@ -103,6 +104,7 @@ function Summary({ state }) {
 
   return (
     <div
+      className="signup-summary-card"
       style={{
         border: "1px solid rgba(255,255,255,0.1)",
         borderRadius: "8px",
@@ -274,9 +276,9 @@ export default function SignupWizard({ onImported, onRegistered }) {
   }
 
   return (
-    <form onSubmit={submit} style={{ maxWidth: "1040px", width: "100%" }}>
-      <div style={{ maxWidth: "720px", marginBottom: "34px" }}>
-        <div style={{ display: "flex", gap: "8px", marginBottom: "18px" }}>
+    <form className="signup-wizard" onSubmit={submit} style={{ maxWidth: "1040px", width: "100%" }}>
+      <div className="signup-wizard-header" style={{ maxWidth: "720px", marginBottom: "34px" }}>
+        <div className="signup-progress" style={{ display: "flex", gap: "8px", marginBottom: "18px" }}>
           {[1, 2, 3, 4].map((item) => (
             <span
               key={item}
@@ -295,7 +297,7 @@ export default function SignupWizard({ onImported, onRegistered }) {
         <h1 style={{ margin: "10px 0 0", fontSize: "34px", fontWeight: 200, color: "#fff" }}>{stepTitle}</h1>
       </div>
 
-      <div style={{ transition: "opacity 180ms ease, transform 180ms ease", opacity: 1, transform: "translateX(0)" }}>
+      <div className="signup-wizard-body" style={{ transition: "opacity 180ms ease, transform 180ms ease", opacity: 1, transform: "translateX(0)" }}>
         {step === 1 ? (
           <div style={{ maxWidth: "460px", display: "grid", gap: "28px" }}>
             <label>
