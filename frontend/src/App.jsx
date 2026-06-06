@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import bB from "./assets/bB.webp";
 import bK from "./assets/bK.webp";
 import bN from "./assets/bN.webp";
@@ -43,6 +43,7 @@ const LANDING_NAVIGATION_EVENT = "blunder:navigate-landing";
 const UPGRADE_NAVIGATION_EVENT = "blunder:navigate-upgrade";
 const phases = ["Opening", "Middlegame", "Endgame"];
 const moveClassifications = ["book", "only", "best", "good", "inaccuracy", "mistake", "blunder", "miss"];
+const reviewClassifications = ["best", "good", "inaccuracy", "mistake", "blunder", "miss"];
 const philosophyQuotes = [
   "The unexamined game is not worth replaying.",
   "Patience is the quiet half of calculation.",
@@ -823,22 +824,6 @@ function isClassificationPending(annotationOrMove) {
   return annotationOrMove?.classificationStatus === "classifying";
 }
 
-function ClassificationPlaceholder({ width = "76px", height = "18px" }) {
-  return (
-    <span
-      className="classification-placeholder"
-      aria-label="classification pending"
-      style={sx({
-        display: "inline-block",
-        width,
-        height,
-        borderRadius: "5px",
-        verticalAlign: "middle",
-      })}
-    />
-  );
-}
-
 function ClassificationSpinner({ size = "22px" }) {
   return (
     <span
@@ -1025,10 +1010,6 @@ function variationMovePrefix(basePly, index) {
   return ply % 2 === 1 ? `${moveNumber}.` : `${moveNumber}...`;
 }
 
-function formatVariationMoveLabel(move, basePly, index) {
-  return `${variationMovePrefix(basePly, index)} ${move.san || move.uci || ""}`;
-}
-
 function formatVariationLine(moves, basePly) {
   return moves
     .map((move, index) => formatLineMoveToken(basePly, index, move.san || move.uci || ""))
@@ -1064,6 +1045,71 @@ function variationAnnotationFromMove(move, basePly, index) {
     cp_loss: move.cpLoss ?? 0,
     game_phase: "analysis",
   };
+}
+
+function analysisMoveId(prefix = "move") {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function variationParentKeyForMainline(ply) {
+  return `mainline:${Number(ply || 0)}`;
+}
+
+function variationParentKeyForMove(moveId) {
+  return `variation:${moveId}`;
+}
+
+function annotationUci(annotation) {
+  return String(
+    annotation?.uci
+    || `${annotation?.from_square || annotation?.from || ""}${annotation?.to_square || annotation?.to || ""}`
+  ).toLowerCase();
+}
+
+function findVariationLine(lines, lineId) {
+  return lines.find((line) => line.id === lineId) || null;
+}
+
+function childVariationLines(lines, parentKey) {
+  return lines.filter((line) => line.parentKey === parentKey);
+}
+
+function updateVariationMove(lines, lineId, moveIndex, updater) {
+  return lines.map((line) => (
+    line.id === lineId
+      ? {
+        ...line,
+        moves: line.moves.map((move, index) => (index === moveIndex ? updater(move) : move)),
+      }
+      : line
+  ));
+}
+
+function removeVariationLineTree(lines, lineId) {
+  const root = findVariationLine(lines, lineId);
+  if (!root) return lines;
+
+  const removedMoveIds = new Set(root.moves.map((move) => move.id));
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    for (const line of lines) {
+      if (removedMoveIds.has(line.parentKey.replace("variation:", ""))) {
+        for (const move of line.moves) {
+          if (!removedMoveIds.has(move.id)) {
+            removedMoveIds.add(move.id);
+            changed = true;
+          }
+        }
+      }
+    }
+  }
+
+  return lines.filter((line) => (
+    line.id !== lineId
+    && !removedMoveIds.has(line.parentKey.replace("variation:", ""))
+  ));
 }
 
 function normalizeName(value) {
@@ -2091,90 +2137,69 @@ function groupAnnotationsByMove(annotations) {
   return moves.filter(Boolean);
 }
 
-function MoveListCell({ annotation, activePly, onSelectPly }) {
-  if (!annotation) {
-    return <span style={sx({ minHeight: "34px" })} />;
+function MoveClassificationBadge({ annotation }) {
+  if (!annotation) return null;
+
+  const isPending = isClassificationPending(annotation);
+  const classification = visualClassification(annotation);
+  const symbol = classificationSymbol(classification);
+
+  if (isPending) {
+    return <ClassificationSpinner size="12px" />;
   }
 
-  const isActive = annotation.ply === activePly;
-  const isPending = isClassificationPending(annotation);
+  if (!symbol && ["good", "ok"].includes(classification)) return null;
+
+  return (
+    <span className={`move-classification-badge is-${classification}`} title={formatClassification(classification)}>
+      {symbol || classification.slice(0, 4)}
+    </span>
+  );
+}
+
+function MoveEvalPill({ annotation }) {
+  const cpLoss = rawCpLoss(annotation);
+  const classification = visualClassification(annotation);
+
+  if (!Number.isFinite(cpLoss) || cpLoss < 20 || ["book", "best", "good", "ok"].includes(classification)) return null;
+
+  return (
+    <span className="move-eval-loss">
+      -{(cpLoss / 100).toFixed(2)}
+    </span>
+  );
+}
+
+function MoveListCell({
+  annotation,
+  activePly,
+  isVariationActive = false,
+  onSelectPly,
+  onSelectVariationMove,
+}) {
+  if (!annotation) {
+    return <span className="move-cell-placeholder" />;
+  }
+
+  const isActive = isVariationActive || annotation.ply === activePly;
   const displayClassification = visualClassification(annotation);
   const classificationTitle = formatClassification(displayClassification);
-  const classificationIcon = classificationIcons[displayClassification];
-  const classificationMark = classificationSymbol(displayClassification);
-  const accent = isPending
-    ? "rgba(255,255,255,0.34)"
-    : displayClassification === "blunder"
-    ? "rgba(255,255,255,0.78)"
-    : displayClassification === "mistake"
-      ? "rgba(255,255,255,0.62)"
-      : displayClassification === "inaccuracy"
-        ? "rgba(255,255,255,0.52)"
-        : "rgba(255,255,255,0.38)";
 
   return (
     <button
       type="button"
-      onClick={() => onSelectPly(annotation.ply)}
+      className={`analysis-move-cell${isActive ? " is-active" : ""} is-${displayClassification}`}
+      onClick={() => (
+        onSelectVariationMove
+          ? onSelectVariationMove()
+          : onSelectPly?.(annotation.ply)
+      )}
       title={`${annotation.san}: ${classificationTitle}`}
-      style={sx({
-        minHeight: "30px",
-        background: isActive ? "rgba(255,255,255,0.09)" : "rgba(255,255,255,0.032)",
-        border: isActive ? "1px solid rgba(255,255,255,0.18)" : "1px solid rgba(255,255,255,0.075)",
-        borderRadius: "999px",
-        color: accent,
-        display: "grid",
-        gridTemplateColumns: "minmax(0, 1fr) 18px",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: "6px",
-        padding: "4px 7px 4px 11px",
-        cursor: "pointer",
-        textAlign: "left",
-        fontFamily: "inherit",
-      })}
     >
-      <span
-        style={sx({
-          fontSize: "13px",
-          minWidth: 0,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        })}
-      >
-        {annotation.san}
-      </span>
-      <span
-        aria-label={classificationTitle}
-        style={sx({
-          width: "18px",
-          height: "18px",
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "rgba(255,255,255,0.62)",
-          flex: "0 0 auto",
-          overflow: "hidden",
-        })}
-      >
-        {isPending ? (
-          <ClassificationSpinner size="14px" />
-        ) : classificationIcon ? (
-          <img
-            src={classificationIcon}
-            alt=""
-            draggable="false"
-            style={sx({
-              width: "15px",
-              height: "15px",
-              objectFit: "contain",
-              filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.35))",
-            })}
-          />
-        ) : (
-          <span style={sx({ fontSize: "10px", lineHeight: 1 })}>{classificationMark}</span>
-        )}
+      <span className="analysis-move-san">{annotation.san}</span>
+      <span className="analysis-move-meta">
+        <MoveEvalPill annotation={annotation} />
+        <MoveClassificationBadge annotation={annotation} />
       </span>
     </button>
   );
@@ -2204,7 +2229,6 @@ function AccuracyCard({ color, player, summary, isUser }) {
           value={summary.accuracy}
           total={100}
           label="accuracy"
-          detail={`${summary.moveCount} moves`}
           size="78px"
           color={color === "white" ? "rgba(255,255,255,0.86)" : "rgba(255,255,255,0.58)"}
         />
@@ -2218,7 +2242,7 @@ function AccuracyCard({ color, player, summary, isUser }) {
           gap: "5px",
         })}
       >
-        {moveClassifications.map((classification) => (
+        {reviewClassifications.map((classification) => (
           <div
             key={classification}
             style={sx({
@@ -2266,6 +2290,8 @@ function GameSummaryBlock({ title, children }) {
   );
 }
 
+// Kept for a future details surface; no longer mounted in the analysis layout.
+// eslint-disable-next-line no-unused-vars
 function GameSummaryPanel({ game, account, onSelectPly, onBoardFocus }) {
   const [summary, setSummary] = useState(null);
   const [slides, setSlides] = useState([]);
@@ -2665,6 +2691,7 @@ function basePlyFromFen(fen) {
 function StockfishLinesPanel({
   fen,
   onPlayLineMove,
+  onPreviewLine,
   onEvaluationChange,
   isApplyingVariation = false,
 }) {
@@ -2743,6 +2770,7 @@ function StockfishLinesPanel({
 
   return (
     <div
+      className="stockfish-panel"
       style={sx({
         position: "relative",
         display: "grid",
@@ -2757,7 +2785,7 @@ function StockfishLinesPanel({
             Stockfish
           </span>
           <span style={sx({ color: "rgba(255,255,255,0.34)", fontSize: "11px" })}>
-            {isApplyingVariation ? "playing move" : panelState.status === "loading" ? "calculating" : panelState.depth ? `${settings.lineCount} lines / depth ${panelState.depth}` : "live"}
+            {isApplyingVariation ? "playing move" : panelState.status === "loading" ? "calculating" : panelState.depth ? `Depth ${panelState.depth} · ${settings.lineCount} lines` : "live"}
           </span>
         </div>
         <div style={sx({ display: "flex", alignItems: "center", gap: "8px", flex: "0 0 auto" })}>
@@ -2879,10 +2907,11 @@ function StockfishLinesPanel({
         <div style={sx({ display: "grid" })}>
           {rows.map((line) => (
             <div
+              className="stockfish-line"
               key={line.placeholder ? `loading-${line.multipv}` : line.multipv}
               style={sx({
                 display: "grid",
-                gridTemplateColumns: "52px minmax(0, 1fr)",
+                gridTemplateColumns: "22px 52px minmax(0, 1fr)",
                 alignItems: "center",
                 gap: "8px",
                 minHeight: "30px",
@@ -2890,7 +2919,11 @@ function StockfishLinesPanel({
                 borderBottom: "1px solid rgba(255,255,255,0.035)",
               })}
             >
+              <span className="stockfish-line-number">
+                {line.multipv || "·"}
+              </span>
               <span
+                className="stockfish-eval-pill"
                 style={sx({
                   color: line.multipv === 1 && !line.placeholder ? "rgba(255,255,255,0.86)" : "rgba(255,255,255,0.56)",
                   fontSize: "12px",
@@ -2903,6 +2936,7 @@ function StockfishLinesPanel({
               </span>
               {line.placeholder || !line.san?.length ? (
                 <span
+                  className="stockfish-moves"
                   style={sx({
                     color: line.placeholder ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.72)",
                     fontSize: "12px",
@@ -2929,8 +2963,9 @@ function StockfishLinesPanel({
                       key={`${line.multipv}-${moveIndex}-${moveSan}`}
                       type="button"
                       disabled={isApplyingVariation}
-                      onClick={() => onPlayLineMove?.(line, moveIndex)}
-                      title={`Play through ${moveSan}`}
+                      onClick={() => (onPreviewLine ? onPreviewLine(line, moveIndex) : onPlayLineMove?.(line, moveIndex))}
+                      onDoubleClick={() => onPlayLineMove?.(line, moveIndex)}
+                      title={onPreviewLine ? `Preview ${moveSan}; double-click to add the line` : `Play through ${moveSan}`}
                       style={sx({
                         border: "none",
                         background: "transparent",
@@ -2955,20 +2990,16 @@ function StockfishLinesPanel({
   );
 }
 
+// eslint-disable-next-line no-unused-vars
 function AnalysisOverviewPanel({ game, account }) {
   const whiteSummary = buildSideSummary(game, "white");
   const blackSummary = buildSideSummary(game, "black");
   const userColor = playerColorForGame(game, account?.username);
 
   return (
-    <div style={sx({ display: "grid", gap: "18px" })}>
-      <div>
-        <div style={sx({ fontSize: "10px", letterSpacing: ".14em", textTransform: "uppercase", color: "rgba(255,255,255,0.22)", marginBottom: "8px" })}>
-          game review
-        </div>
-        <div style={sx({ fontSize: "20px", color: "#fff", lineHeight: 1.15 })}>
-          Accuracy estimate
-        </div>
+    <div className="analysis-overview" style={sx({ display: "grid", gap: "18px" })}>
+      <div style={sx({ fontSize: "16px", color: "#fff", lineHeight: 1.15 })}>
+        Accuracy
       </div>
       <AccuracyCard color="white" player={game.white_player} summary={whiteSummary} isUser={userColor === "white"} />
       <AccuracyCard color="black" player={game.black_player} summary={blackSummary} isUser={userColor === "black"} />
@@ -2976,218 +3007,152 @@ function AnalysisOverviewPanel({ game, account }) {
   );
 }
 
+function VariationLine({
+  line,
+  allLines,
+  activeCursor,
+  collapsedLineIds,
+  onToggle,
+  onSelectMove,
+  onDelete,
+  onCopy,
+  depth = 0,
+}) {
+  const isCollapsed = collapsedLineIds.has(line.id);
+
+  return (
+    <div className="variation-line" style={sx({ "--variation-depth": depth })}>
+      <div className="variation-line-header">
+        <button type="button" className="variation-toggle" onClick={() => onToggle(line.id)} aria-label={isCollapsed ? "Expand variation" : "Collapse variation"}>
+          {isCollapsed ? "+" : "-"}
+        </button>
+        <span>{line.moves.length} move{line.moves.length === 1 ? "" : "s"}</span>
+        <span className="variation-line-actions">
+          <button type="button" onClick={() => onCopy(line)}>copy</button>
+          <button type="button" onClick={() => onDelete(line.id)}>delete</button>
+        </span>
+      </div>
+      {!isCollapsed ? (
+        <div className="variation-moves">
+          {line.moves.map((move, moveIndex) => {
+            const annotation = variationAnnotationFromMove(move, line.basePly, moveIndex);
+            const childLines = childVariationLines(allLines, variationParentKeyForMove(move.id));
+            const isActive = activeCursor?.lineId === line.id && activeCursor?.moveIndex === moveIndex;
+
+            return (
+              <Fragment key={move.id}>
+                <MoveListCell
+                  annotation={annotation}
+                  activePly={-1}
+                  isVariationActive={isActive}
+                  onSelectVariationMove={() => onSelectMove(line.id, moveIndex)}
+                />
+                {childLines.map((childLine) => (
+                  <VariationLine
+                    key={childLine.id}
+                    line={childLine}
+                    allLines={allLines}
+                    activeCursor={activeCursor}
+                    collapsedLineIds={collapsedLineIds}
+                    onToggle={onToggle}
+                    onSelectMove={onSelectMove}
+                    onDelete={onDelete}
+                    onCopy={onCopy}
+                    depth={depth + 1}
+                  />
+                ))}
+              </Fragment>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function AnalysisMovesPanel({
   currentAnnotation,
-  currentClassification,
   fen,
   moveRows,
-  variationBasePly,
-  variationMoves = [],
+  variationLines = [],
+  activeVariationCursor,
   variationStatus = "idle",
   variationError = "",
   onSelectPly,
+  onSelectVariationMove,
+  onPreviewLine,
   onPlayLineMove,
-  onDeleteVariationMove,
-  onClearVariation,
+  onDeleteVariationLine,
   onEvaluationChange,
 }) {
-  const activeVariationIndex = variationMoves.length - 1;
-  const activeVariationMove = activeVariationIndex >= 0 ? variationMoves[activeVariationIndex] : null;
-  const activeMoveLabel = activeVariationMove
-    ? formatVariationMoveLabel(activeVariationMove, variationBasePly, activeVariationIndex)
-    : formatMoveLabel(currentAnnotation);
-  const variationLine = variationMoves.length ? formatVariationLine(variationMoves, variationBasePly) : "";
-  const activeVariationClassification = activeVariationMove?.classification || "analysis";
-  const activeVariationStatus = activeVariationMove?.classificationStatus || "";
-  const activeVariationIcon = classificationIcons[activeVariationClassification];
+  const [collapsedLineIds, setCollapsedLineIds] = useState(() => new Set());
+
+  function toggleVariation(lineId) {
+    setCollapsedLineIds((current) => {
+      const next = new Set(current);
+      if (next.has(lineId)) next.delete(lineId);
+      else next.add(lineId);
+      return next;
+    });
+  }
+
+  function copyVariation(line) {
+    const text = formatVariationLine(line.moves, line.basePly);
+    navigator.clipboard?.writeText(text).catch(() => {});
+  }
 
   return (
-    <div style={sx({ display: "grid", gap: "14px" })}>
-      <div
-        style={sx({
-          display: "grid",
-          gap: "8px",
-          paddingBottom: "14px",
-          borderBottom: "1px solid rgba(255,255,255,0.055)",
-        })}
-      >
-        <div style={sx({ display: "flex", alignItems: "baseline", gap: "12px", flexWrap: "wrap" })}>
-          <span style={sx({ fontSize: "10px", letterSpacing: ".14em", textTransform: "uppercase", color: "rgba(255,255,255,0.22)" })}>
-            current
-          </span>
-          <span style={sx({ fontSize: "21px", color: "#fff" })}>{activeMoveLabel}</span>
-          <span style={sx({ display: "flex", gap: "12px", flexWrap: "wrap", color: "rgba(255,255,255,0.38)", fontSize: "12px" })}>
-            {activeVariationMove ? (
-              <>
-                <span>
-                  {activeVariationIcon && activeVariationStatus !== "classifying" && activeVariationStatus !== "failed" ? (
-                    <img
-                      src={activeVariationIcon}
-                      alt=""
-                      draggable="false"
-                      style={sx({
-                        width: "14px",
-                        height: "14px",
-                        objectFit: "contain",
-                        marginRight: "5px",
-                        verticalAlign: "-2px",
-                      })}
-                    />
-                  ) : null}
-                  {activeVariationStatus === "classifying"
-                    ? <span style={sx({ display: "inline-flex", alignItems: "center", gap: "7px" })}>
-                      <ClassificationSpinner size="14px" />
-                      <ClassificationPlaceholder width="58px" height="13px" />
-                    </span>
-                    : activeVariationStatus === "failed"
-                      ? "classification failed"
-                    : formatClassification(activeVariationClassification)}
-                </span>
-                <span>
-                  {activeVariationStatus === "classifying"
-                    ? <ClassificationPlaceholder width="54px" height="16px" />
-                    : `loss ${((activeVariationMove.cpLoss ?? 0) / 100).toFixed(2)}`}
-                </span>
-                <span>{variationMoves.length} move{variationMoves.length === 1 ? "" : "s"}</span>
-              </>
-            ) : (
-              <>
-                <span>{formatClassification(currentClassification)}</span>
-                <span>loss {formatCpLoss(currentAnnotation)}</span>
-                <span>{currentAnnotation.game_phase}</span>
-              </>
-            )}
-          </span>
-        </div>
-      </div>
-
+    <div className="analysis-moves-panel">
       <StockfishLinesPanel
         fen={fen}
+        onPreviewLine={onPreviewLine}
         onPlayLineMove={onPlayLineMove}
         onEvaluationChange={onEvaluationChange}
         isApplyingVariation={variationStatus === "loading"}
       />
 
-      {variationError ? (
-        <div style={sx({ fontSize: "12px", color: "rgba(255,255,255,0.62)", lineHeight: 1.35 })}>
-          {variationError}
-        </div>
-      ) : null}
+      {variationError ? <div className="analysis-variation-error">{variationError}</div> : null}
 
-      <div style={sx({ fontSize: "11px", letterSpacing: ".14em", textTransform: "uppercase", color: "rgba(255,255,255,0.22)" })}>
-        move list
+      <div className="move-list-heading">
+        <span>Move list</span>
+        <span>{moveRows.length} moves</span>
       </div>
 
-      <div
-        className="analysis-move-list"
-        style={sx({ display: "flex", flexDirection: "column", gap: "1px", height: "430px", overflowY: "auto", scrollbarWidth: "none", msOverflowStyle: "none", paddingRight: "2px" })}
-      >
-        {variationMoves.length ? (
-          <div
-            style={sx({
-              display: "grid",
-              gap: "2px",
-              padding: "0 0 10px",
-              marginBottom: "8px",
-              borderBottom: "1px solid rgba(255,255,255,0.12)",
-            })}
-          >
-            <div
-              style={sx({
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: "10px",
-                padding: "4px 2px 6px",
-              })}
-            >
-              <span style={sx({ color: "rgba(255,255,255,0.56)", fontSize: "10px", letterSpacing: ".14em", textTransform: "uppercase" })}>
-                variation
-              </span>
-              <button
-                type="button"
-                onClick={onClearVariation}
-                style={sx({
-                  border: "none",
-                  background: "transparent",
-                  color: "rgba(255,255,255,0.4)",
-                  cursor: "pointer",
-                  fontSize: "11px",
-                  fontFamily: "inherit",
-                  letterSpacing: ".08em",
-                  textTransform: "uppercase",
-                  padding: "2px 0",
-                })}
-              >
-                clear
-              </button>
-            </div>
-            <div
-              style={sx({
-                display: "grid",
-                gridTemplateColumns: "minmax(0, 1fr) auto",
-                gap: "10px",
-                alignItems: "center",
-                minHeight: "34px",
-                padding: "7px 8px",
-                background: "rgba(255,255,255,0.06)",
-                border: "1px solid rgba(255,255,255,0.12)",
-              })}
-            >
-              <span
-                title={variationLine}
-                style={sx({
-                  color: "#fff",
-                  fontSize: "13px",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                  minWidth: 0,
-                })}
-              >
-                {variationLine}
-              </span>
-              <button
-                type="button"
-                title="Delete last variation move"
-                onClick={() => onDeleteVariationMove?.(activeVariationIndex)}
-                style={sx({
-                  border: "none",
-                  background: "transparent",
-                  color: "rgba(255,255,255,0.5)",
-                  cursor: "pointer",
-                  fontSize: "11px",
-                  fontFamily: "inherit",
-                  letterSpacing: ".08em",
-                  textTransform: "uppercase",
-                  padding: "2px 0",
-                })}
-              >
-                undo
-              </button>
-            </div>
-          </div>
-        ) : null}
+      <div className="analysis-move-list">
+        <div className="move-list-columns">
+          <span>Move</span>
+          <span>White</span>
+          <span>Black</span>
+        </div>
+        {moveRows.map((row) => {
+          const rowAnnotations = [row.white, row.black].filter(Boolean);
+          const anchoredLines = rowAnnotations.flatMap((annotation) => (
+            childVariationLines(variationLines, variationParentKeyForMainline(annotation.ply))
+          ));
 
-        {moveRows.map((row) => (
-          <div
-            key={row.moveIndex}
-            style={sx({
-              display: "grid",
-              gridTemplateColumns: "34px minmax(0, 1fr) minmax(0, 1fr)",
-              gap: "5px",
-              alignItems: "center",
-              borderBottom: "1px solid rgba(255,255,255,0.04)",
-              padding: "2px 0",
-            })}
-          >
-            <span style={sx({ fontSize: "11px", color: "rgba(255,255,255,0.2)", letterSpacing: ".08em", paddingLeft: "3px" })}>
-              {row.moveIndex}.
-            </span>
-            <MoveListCell annotation={row.white} activePly={currentAnnotation.ply} onSelectPly={onSelectPly} />
-            <MoveListCell annotation={row.black} activePly={currentAnnotation.ply} onSelectPly={onSelectPly} />
-          </div>
-        ))}
+          return (
+            <Fragment key={row.moveIndex}>
+              <div className="analysis-move-row">
+                <span className="analysis-move-number">{row.moveIndex}.</span>
+                <MoveListCell annotation={row.white} activePly={currentAnnotation.ply} onSelectPly={onSelectPly} />
+                <MoveListCell annotation={row.black} activePly={currentAnnotation.ply} onSelectPly={onSelectPly} />
+              </div>
+              {anchoredLines.map((line) => (
+                <VariationLine
+                  key={line.id}
+                  line={line}
+                  allLines={variationLines}
+                  activeCursor={activeVariationCursor}
+                  collapsedLineIds={collapsedLineIds}
+                  onToggle={toggleVariation}
+                  onSelectMove={onSelectVariationMove}
+                  onDelete={onDeleteVariationLine}
+                  onCopy={copyVariation}
+                />
+              ))}
+            </Fragment>
+          );
+        })}
       </div>
     </div>
   );
@@ -6470,6 +6435,7 @@ function ExplorerResultBar({ white, draws, black }) {
   );
 }
 
+// eslint-disable-next-line no-unused-vars
 function OpeningDatabasePanel({ fen, embedded = false }) {
   const [source, setSource] = useState("masters");
   const [query, setQuery] = useState("");
@@ -7149,35 +7115,36 @@ function BrowserAnalysisPage({ onHome }) {
   );
 }
 
-function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
+function AnalysisPage({ game, selectedPly, onSelectPly, onHome }) {
   const [linePreview, setLinePreview] = useState(null);
-  const [analysisTab, setAnalysisTab] = useState("overview");
   const [summaryBoardFocus, setSummaryBoardFocus] = useState(null);
-  const [variationMoves, setVariationMoves] = useState([]);
+  const [variationLines, setVariationLines] = useState([]);
+  const [activeVariationCursor, setActiveVariationCursor] = useState(null);
   const [variationStatus, setVariationStatus] = useState("idle");
   const [variationError, setVariationError] = useState("");
   const [liveEvaluation, setLiveEvaluation] = useState(null);
   const currentAnnotation =
     game.annotations.find((annotation) => annotation.ply === selectedPly) || game.annotations[0];
   const actualBoardFen = currentAnnotation?.fen_after || currentAnnotation?.fen_before || game.annotations[0]?.fen_before;
-  const variationBasePly = currentAnnotation?.ply || 0;
-  const activeVariationIndex = variationMoves.length - 1;
-  const activeVariationMove = activeVariationIndex >= 0 ? variationMoves[activeVariationIndex] : null;
+  const activeVariationLine = activeVariationCursor
+    ? findVariationLine(variationLines, activeVariationCursor.lineId)
+    : null;
+  const activeVariationMove = activeVariationLine?.moves[activeVariationCursor?.moveIndex] || null;
   const activeVariationAnnotation = activeVariationMove
-    ? variationAnnotationFromMove(activeVariationMove, variationBasePly, activeVariationIndex)
+    ? variationAnnotationFromMove(activeVariationMove, activeVariationLine.basePly, activeVariationCursor.moveIndex)
     : null;
   const activeAnalysisFen = activeVariationMove?.fenAfter || actualBoardFen;
   const boardFen = linePreview?.fen || activeAnalysisFen;
   const displayedBoardFen = summaryBoardFocus?.fen || boardFen;
   const displayedAnnotation = summaryBoardFocus
     ? summaryBoardFocus.annotation
-    : activeVariationAnnotation || currentAnnotation;
+    : linePreview?.annotation || activeVariationAnnotation || currentAnnotation;
   const displayedEvaluationOverride = !summaryBoardFocus && liveEvaluation !== null ? liveEvaluation : null;
   const moveRows = groupAnnotationsByMove(game.annotations);
   const currentClassification = visualClassification(currentAnnotation);
 
-  function clearVariation() {
-    setVariationMoves([]);
+  function clearVariationSelection() {
+    setActiveVariationCursor(null);
     setVariationStatus("idle");
     setVariationError("");
     setLiveEvaluation(null);
@@ -7186,13 +7153,8 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
   function handleSelectPly(ply) {
     setLinePreview(null);
     setSummaryBoardFocus(null);
-    clearVariation();
+    clearVariationSelection();
     onSelectPly(ply);
-  }
-
-  function handleAnalysisTab(tab) {
-    setAnalysisTab(tab);
-    if (tab !== "summary") setSummaryBoardFocus(null);
   }
 
   async function requestAnalysisMove(body) {
@@ -7212,11 +7174,11 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
     return payload;
   }
 
-  async function classifyVariationMoveAtIndex(index, move) {
+  async function classifyVariationMoveAtIndex(lineId, moveIndex, move) {
     try {
       const result = await classifyMoveWithCloudStockfish(move);
-      setVariationMoves((current) => current.map((item, itemIndex) => (
-        itemIndex === index && item.uci === move.uci && item.fenBefore === move.fenBefore
+      setVariationLines((current) => updateVariationMove(current, lineId, moveIndex, (item) => (
+        item.uci === move.uci && item.fenBefore === move.fenBefore
           ? {
             ...item,
             classification: result.classification,
@@ -7229,12 +7191,20 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
           : item
       )));
     } catch (error) {
-      setVariationMoves((current) => current.map((item, itemIndex) => (
-        itemIndex === index && item.uci === move.uci && item.fenBefore === move.fenBefore
+      setVariationLines((current) => updateVariationMove(current, lineId, moveIndex, (item) => (
+        item.uci === move.uci && item.fenBefore === move.fenBefore
           ? { ...item, classificationStatus: "failed", classificationError: error.message || "classification failed" }
           : item
       )));
     }
+  }
+
+  function selectVariationMove(lineId, moveIndex) {
+    setLinePreview(null);
+    setSummaryBoardFocus(null);
+    setActiveVariationCursor({ lineId, moveIndex });
+    setVariationError("");
+    setLiveEvaluation(null);
   }
 
   async function handleBoardMove({ from, to }) {
@@ -7244,24 +7214,101 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
     setVariationError("");
     setLiveEvaluation(null);
     setSummaryBoardFocus(null);
+    setLinePreview(null);
 
     try {
       const move = await requestAnalysisMove({ fen: activeAnalysisFen, from, to });
-      const moveIndex = variationMoves.length;
       const pendingMove = {
         ...move,
+        id: analysisMoveId("user"),
         source: "board",
         classification: "analysis",
         classificationStatus: "classifying",
       };
 
-      setVariationMoves((current) => [...current, pendingMove]);
-      setAnalysisTab("moves");
-      classifyVariationMoveAtIndex(moveIndex, pendingMove);
+      if (!activeVariationCursor) {
+        const nextMainline = game.annotations.find((annotation) => annotation.ply === currentAnnotation.ply + 1);
+        if (nextMainline && annotationUci(nextMainline) === annotationUci(move)) {
+          handleSelectPly(nextMainline.ply);
+          return;
+        }
+      } else {
+        const expectedMove = activeVariationLine?.moves[activeVariationCursor.moveIndex + 1];
+        if (expectedMove && annotationUci(expectedMove) === annotationUci(move)) {
+          selectVariationMove(activeVariationLine.id, activeVariationCursor.moveIndex + 1);
+          return;
+        }
+      }
+
+      const parentKey = activeVariationMove
+        ? variationParentKeyForMove(activeVariationMove.id)
+        : variationParentKeyForMainline(currentAnnotation.ply);
+      const existingLine = childVariationLines(variationLines, parentKey)
+        .find((line) => annotationUci(line.moves[0]) === annotationUci(move));
+
+      if (existingLine) {
+        selectVariationMove(existingLine.id, 0);
+        return;
+      }
+
+      const canContinueActiveLine = activeVariationLine
+        && activeVariationCursor.moveIndex === activeVariationLine.moves.length - 1;
+      const lineId = canContinueActiveLine ? activeVariationLine.id : analysisMoveId("line");
+      const moveIndex = canContinueActiveLine ? activeVariationLine.moves.length : 0;
+
+      if (canContinueActiveLine) {
+        setVariationLines((current) => current.map((line) => (
+          line.id === lineId ? { ...line, moves: [...line.moves, pendingMove] } : line
+        )));
+      } else {
+        setVariationLines((current) => [
+          ...current,
+          {
+            id: lineId,
+            parentKey,
+            basePly: activeVariationAnnotation?.ply || currentAnnotation.ply,
+            source: "board",
+            moves: [pendingMove],
+          },
+        ]);
+      }
+
+      setActiveVariationCursor({ lineId, moveIndex });
+      classifyVariationMoveAtIndex(lineId, moveIndex, pendingMove);
     } catch (error) {
       setVariationError(error.message || "move is illegal");
     } finally {
       setVariationStatus("idle");
+    }
+  }
+
+  async function handlePreviewLine(line, moveIndex) {
+    const uciMoves = (line?.pv || []).slice(0, moveIndex + 1);
+    if (!uciMoves.length || !activeAnalysisFen || variationStatus === "loading") return;
+
+    setVariationError("");
+
+    try {
+      let cursorFen = activeAnalysisFen;
+      let previewMove = null;
+
+      for (const uci of uciMoves) {
+        previewMove = await requestAnalysisMove({ fen: cursorFen, uci });
+        cursorFen = previewMove.fenAfter;
+      }
+
+      if (previewMove) {
+        setLinePreview({
+          fen: previewMove.fenAfter,
+          annotation: variationAnnotationFromMove(
+            { ...previewMove, classification: "analysis" },
+            activeVariationAnnotation?.ply || currentAnnotation.ply,
+            uciMoves.length - 1
+          ),
+        });
+      }
+    } catch (error) {
+      setVariationError(error.message || "unable to preview engine line");
     }
   }
 
@@ -7273,6 +7320,7 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
     setVariationError("");
     setLiveEvaluation(null);
     setSummaryBoardFocus(null);
+    setLinePreview(null);
 
     try {
       let cursorFen = activeAnalysisFen;
@@ -7282,6 +7330,7 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
         const move = await requestAnalysisMove({ fen: cursorFen, uci });
         nextMoves.push({
           ...move,
+          id: analysisMoveId("engine"),
           source: "engine",
           classification: "analysis",
           classificationStatus: "classifying",
@@ -7289,11 +7338,19 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
         cursorFen = move.fenAfter;
       }
 
-      const startIndex = variationMoves.length;
-      setVariationMoves((current) => [...current, ...nextMoves]);
-      setAnalysisTab("moves");
+      const parentKey = activeVariationMove
+        ? variationParentKeyForMove(activeVariationMove.id)
+        : variationParentKeyForMainline(currentAnnotation.ply);
+      const lineId = analysisMoveId("line");
+      const basePly = activeVariationAnnotation?.ply || currentAnnotation.ply;
+
+      setVariationLines((current) => [
+        ...current,
+        { id: lineId, parentKey, basePly, source: "engine", moves: nextMoves },
+      ]);
+      setActiveVariationCursor({ lineId, moveIndex: nextMoves.length - 1 });
       nextMoves.forEach((move, index) => {
-        classifyVariationMoveAtIndex(startIndex + index, move);
+        classifyVariationMoveAtIndex(lineId, index, move);
       });
     } catch (error) {
       setVariationError(error.message || "unable to play engine line");
@@ -7302,8 +7359,9 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
     }
   }
 
-  function handleDeleteVariationMove(index) {
-    setVariationMoves((current) => current.slice(0, index));
+  function handleDeleteVariationLine(lineId) {
+    setVariationLines((current) => removeVariationLineTree(current, lineId));
+    if (activeVariationCursor?.lineId === lineId) setActiveVariationCursor(null);
     setVariationError("");
     setLiveEvaluation(null);
   }
@@ -7327,10 +7385,34 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
         || target instanceof HTMLSelectElement
         || target?.isContentEditable;
 
-      if (isTypingTarget || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+      if (isTypingTarget) return;
+
+      if (event.key === "Delete" && activeVariationCursor) {
+        event.preventDefault();
+        if (window.confirm("Delete this variation and its sub-variations?")) {
+          setVariationLines((current) => removeVariationLineTree(current, activeVariationCursor.lineId));
+          setActiveVariationCursor(null);
+          setVariationError("");
+          setLiveEvaluation(null);
+        }
+        return;
+      }
+
+      if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+
+      if (activeVariationLine && activeVariationCursor) {
+        const direction = ["ArrowRight", "ArrowDown"].includes(event.key) ? 1 : -1;
+        const nextMoveIndex = activeVariationCursor.moveIndex + direction;
+
+        if (nextMoveIndex >= 0 && nextMoveIndex < activeVariationLine.moves.length) {
+          event.preventDefault();
+          selectVariationMove(activeVariationLine.id, nextMoveIndex);
+          return;
+        }
+      }
 
       const currentIndex = game.annotations.findIndex((annotation) => annotation.ply === currentAnnotation.ply);
-      const nextIndex = event.key === "ArrowRight"
+      const nextIndex = ["ArrowRight", "ArrowDown"].includes(event.key)
         ? Math.min(game.annotations.length - 1, currentIndex + 1)
         : Math.max(0, currentIndex - 1);
       const nextAnnotation = game.annotations[nextIndex];
@@ -7340,7 +7422,7 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
       event.preventDefault();
       setLinePreview(null);
       setSummaryBoardFocus(null);
-      setVariationMoves([]);
+      setActiveVariationCursor(null);
       setVariationStatus("idle");
       setVariationError("");
       setLiveEvaluation(null);
@@ -7349,25 +7431,12 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentAnnotation.ply, game.annotations, onSelectPly]);
+  }, [activeVariationCursor, activeVariationLine, currentAnnotation.ply, game.annotations, onSelectPly]);
 
   return (
     <AppShell view="analysis" onHome={onHome}>
-      <header className="analysis-game-header">
-        <div>
-          <span className="analysis-game-eyebrow">Game review</span>
-          <h1>{prettifyOpeningName(game)}</h1>
-          <p>{game.white_player} vs {game.black_player}</p>
-        </div>
-        <div className="analysis-game-meta">
-          <span>{game.result || "--"}</span>
-          <span>{game.annotations.length} half-moves</span>
-          <span>{formatPlayedDate(game.played_at)}</span>
-          <span>{formatClassification(currentClassification)} review</span>
-        </div>
-      </header>
       <div
-        className="analysis-layout"
+        className="analysis-layout analysis-layout-focus"
         style={sx({
           maxWidth: "1540px",
           display: "grid",
@@ -7376,72 +7445,11 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
           alignItems: "start",
         })}
       >
-        <div
-          className="analysis-panel analysis-left-panel analysis-move-list"
-          style={sx({
-            borderRight: "1px solid rgba(255,255,255,0.06)",
-            paddingRight: "20px",
-            height: ANALYSIS_SIDE_PANEL_HEIGHT,
-            minHeight: 0,
-            overflowY: "auto",
-            overflowX: "hidden",
-            scrollbarWidth: "none",
-            msOverflowStyle: "none",
-          })}
-        >
-          <div
-            style={sx({
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr 1.12fr",
-              gap: "8px",
-              marginBottom: "18px",
-            })}
-          >
-            {["overview", "opening", "summary"].map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => handleAnalysisTab(tab)}
-                style={sx({
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  background: analysisTab === tab ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.025)",
-                  color: analysisTab === tab ? "#fff" : "rgba(255,255,255,0.42)",
-                  minHeight: "32px",
-                  fontSize: "12px",
-                  letterSpacing: ".08em",
-                  textTransform: "uppercase",
-                  cursor: "pointer",
-                  fontFamily: "inherit",
-                })}
-              >
-                {tab === "overview" ? "overview" : tab === "opening" ? "opening" : "summary"}
-              </button>
-            ))}
-          </div>
-
-          {analysisTab === "overview" ? (
-            <AnalysisOverviewPanel
-              game={game}
-              account={account}
-            />
-          ) : analysisTab === "opening" ? (
-            <OpeningDatabasePanel fen={displayedBoardFen} embedded />
-          ) : (
-            <GameSummaryPanel
-              key={game.id}
-              game={game}
-              account={account}
-              onSelectPly={handleSelectPly}
-              onBoardFocus={setSummaryBoardFocus}
-            />
-          )}
-        </div>
-
         <div className="board-column analysis-board-column" style={sx({ display: "flex", flexDirection: "column", gap: "12px" })}>
-          <div className="analysis-current-move">
+          <div className="analysis-current-move is-temporarily-hidden">
             <div>
               <span>Current move</span>
-              <strong>{currentAnnotation?.move_index || "--"}. {currentAnnotation?.san || "--"}</strong>
+              <strong>{currentAnnotation ? formatMoveLabel(currentAnnotation) : "--"}</strong>
             </div>
             <div className={`analysis-classification is-${currentClassification}`}>
               {formatClassification(currentClassification)}
@@ -7454,10 +7462,10 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
             className="board-with-eval"
             style={sx({
               display: "grid",
-              gridTemplateColumns: "minmax(0, 620px) 30px",
+              gridTemplateColumns: "minmax(0, 860px) 30px",
               gap: "8px",
               alignItems: "stretch",
-              maxWidth: "658px",
+              maxWidth: "898px",
             })}
           >
             <Board
@@ -7465,9 +7473,9 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
               fen={displayedBoardFen}
               annotation={displayedAnnotation}
               isExploringLine={Boolean(linePreview || summaryBoardFocus || activeVariationMove)}
-              maxWidth="620px"
-              interactive={!summaryBoardFocus}
-              onMove={summaryBoardFocus ? null : handleBoardMove}
+              maxWidth="860px"
+              interactive={!summaryBoardFocus && !linePreview}
+              onMove={summaryBoardFocus || linePreview ? null : handleBoardMove}
               isMoveBusy={variationStatus === "loading"}
               showMoveBadge={!linePreview && !summaryBoardFocus}
               autoArrows={summaryBoardFocus?.arrows || []}
@@ -7495,17 +7503,17 @@ function AnalysisPage({ game, selectedPly, onSelectPly, onHome, account }) {
         >
           <AnalysisMovesPanel
             currentAnnotation={currentAnnotation}
-            currentClassification={currentClassification}
             fen={activeAnalysisFen}
             moveRows={moveRows}
-            variationBasePly={variationBasePly}
-            variationMoves={variationMoves}
+            variationLines={variationLines}
+            activeVariationCursor={activeVariationCursor}
             variationStatus={variationStatus}
             variationError={variationError}
             onSelectPly={handleSelectPly}
+            onSelectVariationMove={selectVariationMove}
+            onPreviewLine={handlePreviewLine}
             onPlayLineMove={handlePlayLineMove}
-            onDeleteVariationMove={handleDeleteVariationMove}
-            onClearVariation={clearVariation}
+            onDeleteVariationLine={handleDeleteVariationLine}
             onEvaluationChange={handleEvaluationChange}
           />
         </div>
@@ -8146,7 +8154,6 @@ export default function App() {
         selectedPly={selectedPly}
         onSelectPly={setSelectedPly}
         onHome={() => setView("dash")}
-        account={account}
       />
     );
   }
