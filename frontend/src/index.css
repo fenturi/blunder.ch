@@ -1809,15 +1809,15 @@ textarea:focus-visible {
 }
 
 .phase-issue-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
-  gap: 14px !important;
-  margin-top: 18px;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  gap: 10px !important;
+  margin-top: 14px;
 }
 
 .issue-card {
   position: relative;
-  gap: 12px !important;
-  padding: 11px !important;
+  gap: 8px !important;
+  padding: 8px !important;
   border-color: var(--border) !important;
   border-radius: 14px;
   background: var(--panel-2) !important;
@@ -1831,39 +1831,19 @@ textarea:focus-visible {
 
 .issue-phase-badge {
   position: absolute;
-  top: 18px;
-  left: 18px;
+  top: 13px;
+  left: 13px;
   z-index: 2;
-  padding: 5px 7px;
+  padding: 4px 6px;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 999px;
   background: rgba(7, 8, 8, 0.8);
   color: rgba(255, 255, 255, 0.82);
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
   backdrop-filter: blur(8px);
-}
-
-.issue-mistake-line {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding-top: 9px;
-  border-top: 1px solid var(--border);
-  color: var(--text-faint);
-  font-size: 10px;
-  line-height: 1.4;
-}
-
-.issue-mistake-line > span {
-  width: 6px;
-  height: 6px;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  background: var(--bad);
-  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
 }
 
 /* Game analysis */
@@ -2029,7 +2009,7 @@ textarea:focus-visible {
 
 @media (max-width: 1320px) {
   .phase-issue-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
   }
 
   .analysis-layout {
@@ -2058,7 +2038,7 @@ textarea:focus-visible {
   }
 
   .phase-issue-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   }
 
   .analysis-game-header {
@@ -2101,7 +2081,7 @@ textarea:focus-visible {
 
   .dashboard-rail-stats,
   .phase-issue-grid {
-    grid-template-columns: 1fr 1fr !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
 
   .phase-section {
@@ -2677,13 +2657,6 @@ textarea:focus-visible {
   border-bottom: 1px solid var(--border);
 }
 
-.dashboard-workspace-identity {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  min-width: 0;
-}
-
 .dashboard-workspace-nav .dashboard-rail-label,
 .dashboard-workspace-nav .dashboard-rail-user,
 .dashboard-workspace-nav .dashboard-rail-platform {
@@ -2865,9 +2838,48 @@ body {
 }
 
 .app-shell-dash .dashboard-workspace-nav .rail-action {
-  min-height: 32px !important;
-  padding: 6px 10px !important;
-  font-size: 11px !important;
+  min-height: 36px !important;
+  padding: 8px 13px !important;
+  border: 1px solid rgba(255, 255, 255, 0.11) !important;
+  border-radius: 10px !important;
+  background: rgba(12, 14, 15, 0.82) !important;
+  color: rgba(255, 255, 255, 0.54) !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+.app-shell-dash .dashboard-workspace-nav .rail-action:hover {
+  border-color: rgba(255, 255, 255, 0.18) !important;
+  background: rgba(18, 21, 23, 0.96) !important;
+  color: rgba(255, 255, 255, 0.78) !important;
+}
+
+.app-shell-dash .dashboard-workspace-nav .rail-action.is-emphasis {
+  border-color: rgba(125, 211, 252, 0.28) !important;
+  background: linear-gradient(180deg, rgba(125, 211, 252, 0.18), rgba(125, 211, 252, 0.09)) !important;
+  color: #dff5ff !important;
+}
+
+.app-shell-dash .dashboard-workspace-nav .rail-action.is-emphasis:hover {
+  border-color: rgba(125, 211, 252, 0.42) !important;
+  background: linear-gradient(180deg, rgba(125, 211, 252, 0.24), rgba(125, 211, 252, 0.13)) !important;
+  color: #fff !important;
+}
+
+.app-shell-actions > button {
+  min-height: 36px !important;
+  padding: 8px 13px !important;
+  border: 1px solid rgba(255, 255, 255, 0.11) !important;
+  border-radius: 10px !important;
+  background: rgba(12, 14, 15, 0.82) !important;
+  color: rgba(255, 255, 255, 0.54) !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase;
 }
 
 .dashboard-metrics {

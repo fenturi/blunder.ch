@@ -3538,10 +3538,6 @@ function IssueRow({ issue, phase, onSelect }) {
         <span>{issue.moves} moves</span>
         <span style={sx({ textAlign: "right" })}>{formatPlayedDate(issue.playedAt)}</span>
       </div>
-      <div className="issue-mistake-line">
-        <span />
-        Review the critical {phase.toLowerCase()} moment
-      </div>
     </button>
   );
 }
@@ -3591,7 +3587,7 @@ function Section({ phase, issues, collapsed, onToggle, isConnected, loading, onS
           className={hasData ? "phase-issue-grid" : undefined}
           style={hasData ? sx({
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
             gap: "14px",
           }) : undefined}
         >
@@ -3872,14 +3868,6 @@ function DashboardWorkspaceNav({
 
   return (
     <nav className="dashboard-workspace-nav" aria-label="Workspace navigation">
-      <div className="dashboard-workspace-identity">
-        <span className="dashboard-rail-label">Workspace</span>
-        <span className="dashboard-rail-user">{hasAccount ? account.username : "Connect account"}</span>
-        <span className="dashboard-rail-platform">
-          {hasAccount ? `${account.platform}${account.isPremium ? " / premium" : ""}` : "Login or create an account"}
-        </span>
-      </div>
-
       <div className="dashboard-rail-actions" style={sx({ display: "grid", gap: "10px" })}>
         {hasAccount ? (
           <>
