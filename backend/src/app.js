@@ -10,6 +10,7 @@ import { studiesRouter } from "./routes/studies.js";
 import { usersRouter } from "./routes/users.js";
 import { validationRouter } from "./routes/validation.js";
 import { devRouter } from "./routes/dev.js";
+import { logError } from "./utils/logger.js";
 
 export function createApp() {
   const app = express();
@@ -21,7 +22,7 @@ export function createApp() {
     if (origin && (allowedOrigins.includes("*") || allowedOrigins.includes(origin))) {
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Vary", "Origin");
-      res.setHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
+      res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
       res.setHeader("Access-Control-Allow-Headers", "Content-Type,Stripe-Signature");
     }
 
@@ -55,9 +56,17 @@ export function createApp() {
 
   app.use((error, _req, res, _next) => {
     const status = error.status ?? 500;
+    const isServerError = status >= 500;
+
+    logError("API request failed", error, { status });
+
     res.status(status).json({
-      error: error.message ?? "Internal server error",
-      details: error.details ?? null,
+      error: isServerError && config.env === "production"
+        ? "Internal server error"
+        : error.message ?? "Internal server error",
+      details: isServerError && config.env === "production"
+        ? null
+        : error.details ?? null,
     });
   });
 

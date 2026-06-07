@@ -8582,7 +8582,13 @@ export default function App() {
         const response = await fetch(apiUrl(`/api/studies?${params.toString()}`));
         const payload = await response.json();
 
-        if (!response.ok) throw new Error(payload.error || "unable to load studies");
+        if (!response.ok) {
+          throw new Error(
+            response.status >= 500
+              ? "Studies are temporarily unavailable."
+              : payload.error || "unable to load studies"
+          );
+        }
         if (isActive) setStudies(payload.studies || []);
       } catch (loadError) {
         if (isActive) setStudiesError(loadError.message || "unable to load studies");
