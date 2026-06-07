@@ -288,6 +288,7 @@ function readStoredPieceSet() {
 function initialViewForAccount(account) {
   if (typeof window === "undefined") return account.username ? "dash" : "landing";
 
+  if (window.location.pathname.startsWith("/studies/") && account.username) return "study";
   if (window.location.pathname === "/analysis") return "sandbox";
   if (window.location.pathname === "/dev") return "dev";
   if (window.location.pathname === "/pro") return "upgrade";
@@ -296,7 +297,15 @@ function initialViewForAccount(account) {
   return window.location.pathname === "/dashboard" && account.username ? "dash" : "landing";
 }
 
-function pathForView(view) {
+function initialStudyIdFromLocation() {
+  if (typeof window === "undefined") return "";
+
+  const match = window.location.pathname.match(/^\/studies\/([^/]+)/);
+  return match?.[1] || "";
+}
+
+function pathForView(view, studyId = "") {
+  if (view === "study" && studyId) return `/studies/${studyId}`;
   if (view === "sandbox") return "/analysis";
   if (view === "dev") return "/dev";
   if (view === "upgrade") return "/pro";
@@ -7115,6 +7124,625 @@ function BrowserAnalysisPage({ onHome }) {
   );
 }
 
+function studyAccountParams(account) {
+  return new URLSearchParams({
+    provider: account.platform,
+    username: account.username,
+  });
+}
+
+function StudyWorkspacePage({ account, studyId, onBack, onDeleted, onStudyLoaded }) {
+  const [study, setStudy] = useState(null);
+  const [activeChapterId, setActiveChapterId] = useState("");
+  const [status, setStatus] = useState("loading");
+  const [error, setError] = useState("");
+  const [selectedPly, setSelectedPly] = useState(null);
+  const [liveEvaluation, setLiveEvaluation] = useState({ fen: "", value: null });
+  const [variationStatus, setVariationStatus] = useState("idle");
+  const [classificationStatus, setClassificationStatus] = useState("");
+  const [editingChapterId, setEditingChapterId] = useState("");
+  const onStudyLoadedRef = useRef(onStudyLoaded);
+
+  const activeChapter = study?.chapters?.find((chapter) => chapter.id === activeChapterId)
+    || study?.chapters?.[0]
+    || null;
+  const rootFen = activeChapter?.root_fen || STARTING_FEN;
+  const moves = useMemo(() => activeChapter?.moves || [], [activeChapter?.moves]);
+  const basePly = useMemo(() => basePlyFromFen(rootFen), [rootFen]);
+  const annotations = useMemo(() => moves.map((move, index) => localAnnotationFromMove(move, basePly, index)), [moves, basePly]);
+  const activeAnnotation = annotations.find((annotation) => annotation.ply === selectedPly)
+    || annotations.at(-1)
+    || {
+      ply: basePly,
+      move_index: Math.max(1, Math.ceil(Math.max(1, basePly) / 2)),
+      san: "position",
+      fen_before: rootFen,
+      fen_after: rootFen,
+      from_square: "",
+      to_square: "",
+      classification: "analysis",
+      evaluation_before: 0,
+      evaluation_after: 0,
+      evaluation_loss: 0,
+      cp_loss: 0,
+      game_phase: "study",
+    };
+  const displayedFen = activeAnnotation.fen_after || rootFen;
+  const displayedMoveCount = Math.max(0, Math.min(moves.length, (activeAnnotation.ply || basePly) - basePly));
+  const isLatestPosition = displayedMoveCount === moves.length;
+  const liveEvaluationValue = liveEvaluation.fen === displayedFen ? liveEvaluation.value : null;
+
+  useEffect(() => {
+    onStudyLoadedRef.current = onStudyLoaded;
+  }, [onStudyLoaded]);
+
+  function studyUrl(path = "") {
+    const params = studyAccountParams(account);
+    return apiUrl(`/api/studies/${studyId}${path}?${params.toString()}`);
+  }
+
+  useEffect(() => {
+    if (!studyId || !account.username || !account.platform) return undefined;
+
+    let isActive = true;
+
+    async function fetchStudy() {
+      setStatus("loading");
+      setError("");
+
+      try {
+        const params = new URLSearchParams({
+          provider: account.platform,
+          username: account.username,
+        });
+        const response = await fetch(apiUrl(`/api/studies/${studyId}?${params.toString()}`));
+        const payload = await response.json();
+
+        if (!response.ok) throw new Error(payload.error || "unable to load study");
+        if (!isActive) return;
+        setStudy(payload);
+        setActiveChapterId((current) => (
+          payload.chapters.some((chapter) => chapter.id === current)
+            ? current
+            : payload.chapters[0]?.id || ""
+        ));
+        onStudyLoadedRef.current?.(payload);
+        setStatus("idle");
+      } catch (loadError) {
+        if (!isActive) return;
+        setError(loadError.message || "unable to load study");
+        setStatus("error");
+      }
+    }
+
+    fetchStudy();
+    return () => {
+      isActive = false;
+    };
+  }, [studyId, account.username, account.platform]);
+
+  async function patchStudyName(name) {
+    const response = await fetch(studyUrl(""), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        provider: account.platform,
+        username: account.username,
+        name,
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "unable to rename study");
+    setStudy((current) => current ? { ...current, name: payload.name, updated_at: payload.updated_at } : current);
+  }
+
+  async function patchChapter(chapterId, patch) {
+    const response = await fetch(studyUrl(`/chapters/${chapterId}`), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        provider: account.platform,
+        username: account.username,
+        ...patch,
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "unable to save chapter");
+    setStudy((current) => current
+      ? {
+        ...current,
+        updated_at: new Date().toISOString(),
+        chapters: current.chapters.map((chapter) => chapter.id === chapterId ? payload : chapter),
+      }
+      : current);
+    return payload;
+  }
+
+  async function saveMoves(nextMoves) {
+    if (!activeChapter) return;
+    await patchChapter(activeChapter.id, { moves: nextMoves });
+  }
+
+  async function classifyStudyMoveAtIndex(index, move, moveNumber, baseMoves = moves) {
+    setClassificationStatus(`Classifying ${move.san || move.uci}.`);
+
+    try {
+      const result = await getOpeningBookClassification({
+        fen: move.fenBefore,
+        playedUci: move.uci,
+        moveNumber,
+      }) || await classifyMoveWithCloudStockfish(move);
+      const nextMoves = baseMoves.map((item, itemIndex) => (
+        itemIndex === index && item.uci === move.uci && item.fenBefore === move.fenBefore
+          ? {
+            ...item,
+            classification: result.classification,
+            classificationStatus: "classified",
+            cpLoss: result.cpLoss,
+            evaluationBefore: result.evaluationBefore,
+            evaluationAfter: result.evaluationAfter,
+            bookMove: result.bookMove,
+            classifiedAt: result.classifiedAt,
+          }
+          : item
+      ));
+      await saveMoves(nextMoves);
+      setClassificationStatus(`${move.san || move.uci}: ${formatClassification(result.classification)} / ${(result.cpLoss / 100).toFixed(2)} pawns`);
+      return nextMoves;
+    } catch (classificationError) {
+      const nextMoves = baseMoves.map((item, itemIndex) => (
+        itemIndex === index && item.uci === move.uci && item.fenBefore === move.fenBefore
+          ? { ...item, classificationStatus: "failed", classificationError: classificationError.message || "classification failed" }
+          : item
+      ));
+      await saveMoves(nextMoves);
+      setClassificationStatus(classificationError.message || "Classification failed.");
+      return nextMoves;
+    }
+  }
+
+  async function applyStudyMove(move) {
+    if (!activeChapter) return;
+
+    const moveIndex = displayedMoveCount;
+    const pendingMove = {
+      ...move,
+      classification: "analysis",
+      classificationStatus: "classifying",
+    };
+    const nextMoves = [...moves.slice(0, displayedMoveCount), pendingMove];
+
+    setError("");
+    setSelectedPly(basePly + moveIndex + 1);
+    setLiveEvaluation({ fen: "", value: null });
+    await saveMoves(nextMoves);
+    classifyStudyMoveAtIndex(
+      moveIndex,
+      pendingMove,
+      pendingMove.moveNumber || Math.ceil((basePly + moveIndex + 1) / 2),
+      nextMoves
+    );
+  }
+
+  async function handleBoardMove({ from, to }) {
+    try {
+      const move = buildLocalMove(displayedFen, { from, to });
+      await applyStudyMove(move);
+    } catch (moveError) {
+      setError(moveError.message || "Illegal move.");
+    }
+  }
+
+  async function handlePlayEngineLine(line, moveIndex) {
+    const uciMoves = (line?.pv || []).slice(0, moveIndex + 1);
+    if (!uciMoves.length || variationStatus === "loading") return;
+
+    setVariationStatus("loading");
+    setError("");
+
+    try {
+      let cursorFen = displayedFen;
+      const nextMoves = [];
+
+      for (const uci of uciMoves) {
+        const move = buildLocalMove(cursorFen, {
+          from: uci.slice(0, 2),
+          to: uci.slice(2, 4),
+          promotion: uci[4] || "q",
+        });
+        nextMoves.push({
+          ...move,
+          classification: "analysis",
+          classificationStatus: "classifying",
+        });
+        cursorFen = move.fenAfter;
+      }
+
+      const combinedMoves = [...moves.slice(0, displayedMoveCount), ...nextMoves];
+      await saveMoves(combinedMoves);
+      setSelectedPly(basePly + displayedMoveCount + nextMoves.length);
+      let classifiedMoves = combinedMoves;
+      for (let index = 0; index < nextMoves.length; index += 1) {
+        const move = nextMoves[index];
+        const ply = basePly + displayedMoveCount + index + 1;
+        classifiedMoves = await classifyStudyMoveAtIndex(
+          displayedMoveCount + index,
+          move,
+          move.moveNumber || Math.ceil(ply / 2),
+          classifiedMoves
+        );
+      }
+    } catch (lineError) {
+      setError(lineError.message || "Unable to play engine line.");
+    } finally {
+      setVariationStatus("idle");
+    }
+  }
+
+  function handleEvaluationChange(value, evaluatedFen) {
+    const nextEvaluation = Number(value);
+    setLiveEvaluation({
+      fen: evaluatedFen || displayedFen,
+      value: Number.isFinite(nextEvaluation) ? nextEvaluation : null,
+    });
+  }
+
+  async function handleAddChapter() {
+    try {
+      const response = await fetch(studyUrl("/chapters"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: account.platform,
+          username: account.username,
+          name: `Chapter ${(study?.chapters?.length || 0) + 1}`,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "unable to add chapter");
+      setStudy((current) => current ? { ...current, chapters: [...current.chapters, payload] } : current);
+      setActiveChapterId(payload.id);
+      setSelectedPly(null);
+    } catch (chapterError) {
+      setError(chapterError.message || "unable to add chapter");
+    }
+  }
+
+  async function handleDeleteChapter(chapterId) {
+    if (!window.confirm("Delete this study chapter?")) return;
+
+    try {
+      const params = studyAccountParams(account);
+      const response = await fetch(apiUrl(`/api/studies/${studyId}/chapters/${chapterId}?${params.toString()}`), {
+        method: "DELETE",
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "unable to delete chapter");
+      setStudy((current) => {
+        if (!current) return current;
+        const chapters = current.chapters.filter((chapter) => chapter.id !== chapterId);
+        setActiveChapterId(chapters[0]?.id || "");
+        setEditingChapterId("");
+        return { ...current, chapters };
+      });
+    } catch (chapterError) {
+      setError(chapterError.message || "unable to delete chapter");
+    }
+  }
+
+  async function handleDeleteStudy() {
+    if (!window.confirm("Delete this study permanently?")) return;
+
+    try {
+      const params = studyAccountParams(account);
+      const response = await fetch(apiUrl(`/api/studies/${studyId}?${params.toString()}`), { method: "DELETE" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "unable to delete study");
+      onDeleted?.();
+    } catch (deleteError) {
+      setError(deleteError.message || "unable to delete study");
+    }
+  }
+
+  if (status === "loading" && !study) {
+    return (
+      <AppShell view="study" onHome={onBack}>
+        <div className="study-page study-panel">Loading study.</div>
+      </AppShell>
+    );
+  }
+
+  return (
+    <AppShell view="study" onHome={onBack}>
+      <div className="study-page">
+        <aside className="study-panel study-chapters-panel">
+          <div className="study-panel-header">
+            <span>Pro study</span>
+            <button type="button" onClick={onBack}>dashboard</button>
+          </div>
+          <input
+            className="study-title-input"
+            value={study?.name || ""}
+            onChange={(event) => setStudy((current) => current ? { ...current, name: event.target.value } : current)}
+            onBlur={(event) => patchStudyName(event.target.value).catch((renameError) => setError(renameError.message))}
+          />
+          <div className="study-chapter-list">
+            {(study?.chapters || []).map((chapter, index) => (
+              <div
+                key={chapter.id}
+                className={chapter.id === activeChapter?.id ? "study-chapter is-active" : "study-chapter"}
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  setActiveChapterId(chapter.id);
+                  setSelectedPly(null);
+                  setLiveEvaluation({ fen: "", value: null });
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setActiveChapterId(chapter.id);
+                    setSelectedPly(null);
+                    setLiveEvaluation({ fen: "", value: null });
+                  }
+                }}
+              >
+                <span>{index + 1}</span>
+                {editingChapterId === chapter.id ? (
+                  <input
+                    className="study-chapter-name-input"
+                    autoFocus
+                    value={chapter.name}
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") event.currentTarget.blur();
+                      if (event.key === "Escape") {
+                        event.stopPropagation();
+                        setEditingChapterId("");
+                        fetch(studyUrl(""))
+                          .then((response) => response.json())
+                          .then((payload) => {
+                            if (payload?.chapters) setStudy(payload);
+                          })
+                          .catch(() => {});
+                      }
+                    }}
+                    onChange={(event) => {
+                      const name = event.target.value;
+                      setStudy((current) => current
+                        ? { ...current, chapters: current.chapters.map((item) => item.id === chapter.id ? { ...item, name } : item) }
+                        : current);
+                    }}
+                    onBlur={(event) => {
+                      setEditingChapterId("");
+                      patchChapter(chapter.id, { name: event.target.value }).catch((renameError) => setError(renameError.message));
+                    }}
+                  />
+                ) : (
+                  <span
+                    className="study-chapter-name-display"
+                    title="Double-click to rename"
+                    onDoubleClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setEditingChapterId(chapter.id);
+                    }}
+                  >
+                    {chapter.name}
+                  </span>
+                )}
+                <small>{(chapter.moves || []).length} moves</small>
+              </div>
+            ))}
+          </div>
+          <div className="study-panel-actions">
+            <button type="button" onClick={handleAddChapter}>add chapter</button>
+            <button type="button" disabled={!activeChapter || (study?.chapters?.length || 0) <= 1} onClick={() => handleDeleteChapter(activeChapter.id)}>delete chapter</button>
+            <button type="button" onClick={handleDeleteStudy}>delete study</button>
+          </div>
+          {error ? <p className="study-error">{error}</p> : null}
+          {classificationStatus ? <p className="study-status">{classificationStatus}</p> : null}
+        </aside>
+
+        <main className="study-board-column">
+          <div className="study-board-meta">
+            <span>{activeChapter?.name || "Chapter"}</span>
+            <span>{fenParts(displayedFen).turn === "w" ? "White" : "Black"} to move</span>
+          </div>
+          <div className="board-with-eval study-board-wrap">
+            <Board
+              fen={displayedFen}
+              annotation={activeAnnotation}
+              maxWidth="680px"
+              interactive={isLatestPosition && variationStatus !== "loading"}
+              onMove={isLatestPosition ? handleBoardMove : null}
+              isMoveBusy={variationStatus === "loading"}
+            />
+            <CurrentEvalBar annotation={activeAnnotation} evaluationOverride={liveEvaluationValue} />
+          </div>
+        </main>
+
+        <aside className="study-panel study-lines-panel">
+          <StockfishLinesPanel
+            fen={displayedFen}
+            onPlayLineMove={handlePlayEngineLine}
+            onEvaluationChange={handleEvaluationChange}
+            isApplyingVariation={variationStatus === "loading"}
+          />
+          <div>
+            <div className="study-section-label">moves and annotations</div>
+            <StandaloneMoveList
+              annotations={annotations}
+              activePly={activeAnnotation.ply}
+              onSelectPly={(ply) => {
+                setSelectedPly(ply);
+                setLiveEvaluation({ fen: "", value: null });
+              }}
+            />
+          </div>
+        </aside>
+      </div>
+    </AppShell>
+  );
+}
+
+function StudiesDashboardSection({
+  account,
+  studies,
+  loading,
+  error,
+  onCreate,
+  onOpen,
+  onRename,
+  onDelete,
+  onUpgrade,
+}) {
+  const [collapsed, setCollapsed] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [newStudyName, setNewStudyName] = useState("Untitled study");
+  const [editingStudyId, setEditingStudyId] = useState("");
+  const [editingStudyName, setEditingStudyName] = useState("");
+  const canCreateStudy = account.isPremium || studies.length < 1;
+
+  function startCreate() {
+    if (!canCreateStudy) {
+      onUpgrade();
+      return;
+    }
+
+    setCollapsed(false);
+    setCreating(true);
+    setNewStudyName("Untitled study");
+  }
+
+  function submitCreate() {
+    const name = newStudyName.trim();
+    if (!name) return;
+    setCreating(false);
+    onCreate(name);
+  }
+
+  function startRename(study) {
+    setEditingStudyId(study.id);
+    setEditingStudyName(study.name);
+  }
+
+  function submitRename(studyId) {
+    const name = editingStudyName.trim();
+    setEditingStudyId("");
+    if (name) onRename(studyId, name);
+  }
+
+  return (
+    <section
+      className={collapsed ? "dashboard-studies is-collapsed" : "dashboard-studies"}
+      role={collapsed ? "button" : undefined}
+      tabIndex={collapsed ? 0 : undefined}
+      onClick={(event) => {
+        if (!collapsed) return;
+        if (event.target.closest("button, input, a")) return;
+        setCollapsed(false);
+      }}
+      onKeyDown={(event) => {
+        if (!collapsed || !["Enter", " "].includes(event.key)) return;
+        event.preventDefault();
+        setCollapsed(false);
+      }}
+    >
+      <div className="dashboard-studies-header">
+        <div className="dashboard-studies-toggle" onClick={() => setCollapsed((current) => !current)}>
+          <span>{account.isPremium ? "Pro workspace" : "Study workspace"}</span>
+          <h2>Studies</h2>
+          <small>{studies.length} saved · {collapsed ? "expand" : "collapse"}</small>
+        </div>
+        {canCreateStudy ? (
+          <button type="button" className="study-create-button" onClick={startCreate}>new study</button>
+        ) : (
+          <button type="button" className="study-create-button" onClick={onUpgrade}>upgrade for more</button>
+        )}
+      </div>
+
+      {!collapsed && creating ? (
+        <div className="dashboard-study-create">
+          <input
+            autoFocus
+            value={newStudyName}
+            onChange={(event) => setNewStudyName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") submitCreate();
+              if (event.key === "Escape") setCreating(false);
+            }}
+            aria-label="New study name"
+          />
+          <button type="button" onClick={submitCreate}>create</button>
+          <button type="button" onClick={() => setCreating(false)}>cancel</button>
+        </div>
+      ) : null}
+
+      {!collapsed && error ? (
+        <div className="dashboard-study-gate">{error}</div>
+      ) : !collapsed && loading ? (
+        <div className="dashboard-study-gate">Loading studies.</div>
+      ) : !collapsed && studies.length ? (
+        <div className="dashboard-study-grid">
+          {studies.map((study) => (
+            <article
+              key={study.id}
+              className="dashboard-study-card"
+            >
+              <div className="dashboard-study-open">
+                {editingStudyId === study.id ? (
+                  <input
+                    className="dashboard-study-name-input"
+                    autoFocus
+                    value={editingStudyName}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) => setEditingStudyName(event.target.value)}
+                    onBlur={() => submitRename(study.id)}
+                    onKeyDown={(event) => {
+                      event.stopPropagation();
+                      if (event.key === "Enter") event.currentTarget.blur();
+                      if (event.key === "Escape") setEditingStudyId("");
+                    }}
+                  />
+                ) : (
+                  <strong
+                    className="dashboard-study-name-display"
+                    title="Double-click to rename"
+                    onDoubleClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      startRename(study);
+                    }}
+                  >
+                    {study.name}
+                  </strong>
+                )}
+                <span className="dashboard-study-info">
+                  {study.chapter_count} chapter{study.chapter_count === 1 ? "" : "s"} / {study.move_count} moves
+                </span>
+                <small className="dashboard-study-updated">Updated {formatPlayedDate(study.updated_at)}</small>
+              </div>
+              <div className="dashboard-study-actions">
+                <button type="button" onClick={() => onOpen(study.id)}>open study</button>
+                <button type="button" onClick={() => onDelete(study.id)}>delete</button>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : !collapsed ? (
+        <div className="dashboard-study-gate">No studies yet. Create one to start a saved analysis workspace.</div>
+      ) : null}
+
+      {!collapsed && !account.isPremium ? (
+        <div className="dashboard-study-limit">
+          Free accounts include one study. Upgrade to Pro for unlimited studies.
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function AnalysisPage({ game, selectedPly, onSelectPly, onHome }) {
   const [linePreview, setLinePreview] = useState(null);
   const [summaryBoardFocus, setSummaryBoardFocus] = useState(null);
@@ -7536,6 +8164,10 @@ export default function App() {
   const [billingNotice, setBillingNotice] = useState("");
   const [boardThemeId, setBoardThemeId] = useState(readStoredBoardTheme);
   const [pieceSetId, setPieceSetId] = useState(readStoredPieceSet);
+  const [studies, setStudies] = useState([]);
+  const [studiesLoading, setStudiesLoading] = useState(false);
+  const [studiesError, setStudiesError] = useState("");
+  const [selectedStudyId, setSelectedStudyId] = useState(initialStudyIdFromLocation);
 
   function handleBoardThemeChange(themeId) {
     const nextThemeId = boardThemeById(themeId).id;
@@ -7579,6 +8211,7 @@ export default function App() {
       setView(readStoredAccount().username ? "upgrade" : "signup");
     };
     const handlePopState = () => {
+      setSelectedStudyId(initialStudyIdFromLocation());
       setView(initialViewForAccount(readStoredAccount()));
     };
 
@@ -7595,13 +8228,13 @@ export default function App() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const nextPath = pathForView(view);
+    const nextPath = pathForView(view, selectedStudyId);
     const nextUrl = `${nextPath}${window.location.search}${window.location.hash}`;
 
     if (window.location.pathname !== nextPath) {
       window.history.pushState({}, "", nextUrl);
     }
-  }, [view]);
+  }, [view, selectedStudyId]);
 
   function handleLogout() {
     setAccount(createEmptyAccount());
@@ -7613,6 +8246,10 @@ export default function App() {
     setDashboardError("");
     setDashboardLoading(false);
     setBillingNotice("");
+    setStudies([]);
+    setStudiesError("");
+    setStudiesLoading(false);
+    setSelectedStudyId("");
     setDashboardReloadKey((current) => current + 1);
     setView("landing");
   }
@@ -7928,6 +8565,101 @@ export default function App() {
     };
   }, [view, account.username, account.platform, dashboardReloadKey]);
 
+  useEffect(() => {
+    if (view !== "dash" || !account.username || !account.platform) return undefined;
+
+    let isActive = true;
+
+    async function loadStudies() {
+      setStudiesLoading(true);
+      setStudiesError("");
+
+      try {
+        const params = new URLSearchParams({
+          provider: account.platform,
+          username: account.username,
+        });
+        const response = await fetch(apiUrl(`/api/studies?${params.toString()}`));
+        const payload = await response.json();
+
+        if (!response.ok) throw new Error(payload.error || "unable to load studies");
+        if (isActive) setStudies(payload.studies || []);
+      } catch (loadError) {
+        if (isActive) setStudiesError(loadError.message || "unable to load studies");
+      } finally {
+        if (isActive) setStudiesLoading(false);
+      }
+    }
+
+    loadStudies();
+
+    return () => {
+      isActive = false;
+    };
+  }, [view, account.username, account.platform]);
+
+  async function createStudy(name) {
+    try {
+      setStudiesError("");
+      const response = await fetch(apiUrl("/api/studies"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: account.platform,
+          username: account.username,
+          name: name.trim() || "Untitled study",
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "unable to create study");
+      setStudies((current) => [payload, ...current]);
+      setSelectedStudyId(payload.id);
+      setView("study");
+    } catch (createError) {
+      setStudiesError(createError.message || "unable to create study");
+    }
+  }
+
+  function openStudy(studyId) {
+    setSelectedStudyId(studyId);
+    setView("study");
+  }
+
+  async function renameStudy(studyId, name) {
+    try {
+      const response = await fetch(apiUrl(`/api/studies/${studyId}`), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: account.platform,
+          username: account.username,
+          name,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "unable to rename study");
+      setStudies((current) => current.map((study) => (
+        study.id === studyId ? { ...study, name: payload.name, updated_at: payload.updated_at } : study
+      )));
+    } catch (renameError) {
+      setStudiesError(renameError.message || "unable to rename study");
+    }
+  }
+
+  async function deleteStudy(studyId) {
+    if (!window.confirm("Delete this study permanently?")) return;
+
+    try {
+      const params = studyAccountParams(account);
+      const response = await fetch(apiUrl(`/api/studies/${studyId}?${params.toString()}`), { method: "DELETE" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "unable to delete study");
+      setStudies((current) => current.filter((study) => study.id !== studyId));
+    } catch (deleteError) {
+      setStudiesError(deleteError.message || "unable to delete study");
+    }
+  }
+
   async function openIssue(issue) {
     const gameId = issue.gameId || issue.id;
 
@@ -8107,6 +8839,40 @@ export default function App() {
     );
   }
 
+  if (view === "study" && account.username && selectedStudyId) {
+    return (
+      <StudyWorkspacePage
+        account={account}
+        studyId={selectedStudyId}
+        onBack={() => {
+          setSelectedStudyId("");
+          setView("dash");
+        }}
+        onDeleted={() => {
+          setStudies((current) => current.filter((study) => study.id !== selectedStudyId));
+          setSelectedStudyId("");
+          setView("dash");
+        }}
+        onStudyLoaded={(loadedStudy) => {
+          setStudies((current) => {
+            const summary = {
+              id: loadedStudy.id,
+              user_id: loadedStudy.user_id,
+              name: loadedStudy.name,
+              created_at: loadedStudy.created_at,
+              updated_at: loadedStudy.updated_at,
+              chapter_count: loadedStudy.chapters?.length || 0,
+              move_count: (loadedStudy.chapters || []).reduce((total, chapter) => total + (chapter.moves?.length || 0), 0),
+            };
+            return current.some((study) => study.id === loadedStudy.id)
+              ? current.map((study) => study.id === loadedStudy.id ? { ...study, ...summary } : study)
+              : [summary, ...current];
+          });
+        }}
+      />
+    );
+  }
+
   if (view === "upgrade") {
     return (
       <UpgradePage
@@ -8269,6 +9035,18 @@ export default function App() {
             <RailMetric label="Queue active" value={queuedGames + runningGames} />
             <RailMetric label="Listed games" value={issueCount} />
           </div>
+
+          <StudiesDashboardSection
+            account={account}
+            studies={studies}
+            loading={studiesLoading}
+            error={studiesError}
+            onCreate={createStudy}
+            onOpen={openStudy}
+            onRename={renameStudy}
+            onDelete={deleteStudy}
+            onUpgrade={() => setView("upgrade")}
+          />
 
           <div className="dashboard-sections" style={styles.sections}>
             {phases.map((phase) => (

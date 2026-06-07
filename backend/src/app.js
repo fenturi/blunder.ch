@@ -6,6 +6,7 @@ import { billingRouter, billingWebhookRouter } from "./routes/billing.js";
 import { importsRouter } from "./routes/imports.js";
 import { gamesRouter } from "./routes/games.js";
 import { openingsRouter } from "./routes/openings.js";
+import { studiesRouter } from "./routes/studies.js";
 import { usersRouter } from "./routes/users.js";
 import { validationRouter } from "./routes/validation.js";
 import { devRouter } from "./routes/dev.js";
@@ -43,6 +44,7 @@ export function createApp() {
   app.use("/api/imports", importsRouter);
   app.use("/api/games", gamesRouter);
   app.use("/api/openings", openingsRouter);
+  app.use("/api/studies", studiesRouter);
   app.use("/api/users", usersRouter);
   app.use("/api/billing", billingRouter);
   app.use("/api/admin", adminRouter);

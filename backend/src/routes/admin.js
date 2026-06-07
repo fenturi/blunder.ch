@@ -52,11 +52,11 @@ adminRouter.post("/reset-database", async (req, res, next) => {
     requireResetCode(req.body?.code);
 
     await clearQueues();
-    await pool.query("truncate table move_annotations, games, imports, users restart identity cascade");
+    await pool.query("truncate table study_chapters, studies, move_annotations, games, imports, users restart identity cascade");
 
     return res.json({
       ok: true,
-      reset: ["move_annotations", "games", "imports", "users"],
+      reset: ["study_chapters", "studies", "move_annotations", "games", "imports", "users"],
       queues: ["imports", "analysis"],
     });
   } catch (error) {

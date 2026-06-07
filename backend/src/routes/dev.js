@@ -62,7 +62,7 @@ devRouter.post("/reset", async (req, res, next) => {
       return res.status(400).json({ error: "confirm: true is required" });
     }
 
-    await pool.query("truncate table move_annotations, games, imports, users cascade");
+    await pool.query("truncate table study_chapters, studies, move_annotations, games, imports, users cascade");
     return res.json({ ok: true });
   } catch (error) {
     next(error);

@@ -179,6 +179,19 @@ export default function SignupWizard({ onImported, onRegistered }) {
     }
   }
 
+  function handleWizardSubmit(event) {
+    event.preventDefault();
+
+    if (step === 2) {
+      if (platformValid && status !== "loading") validateUsername();
+      return;
+    }
+
+    if (step === 4) {
+      submit(event);
+    }
+  }
+
   async function submit(event) {
     event.preventDefault();
     setStatus("loading");
@@ -276,7 +289,7 @@ export default function SignupWizard({ onImported, onRegistered }) {
   }
 
   return (
-    <form className="signup-wizard" onSubmit={submit} style={{ maxWidth: "1040px", width: "100%" }}>
+    <form className="signup-wizard" onSubmit={handleWizardSubmit} style={{ maxWidth: "1040px", width: "100%" }}>
       <div className="signup-wizard-header" style={{ maxWidth: "720px", marginBottom: "34px" }}>
         <div className="signup-progress" style={{ display: "flex", gap: "8px", marginBottom: "18px" }}>
           {[1, 2, 3, 4].map((item) => (
@@ -329,6 +342,8 @@ export default function SignupWizard({ onImported, onRegistered }) {
                   key={provider}
                   type="button"
                   onClick={() => update({ provider })}
+                  className={state.provider === provider ? "signup-provider-button is-selected" : "signup-provider-button"}
+                  aria-pressed={state.provider === provider}
                   style={{
                     padding: "10px 16px",
                     borderRadius: "6px",
@@ -349,7 +364,12 @@ export default function SignupWizard({ onImported, onRegistered }) {
             </label>
             <div style={{ display: "flex", gap: "24px", alignItems: "baseline" }}>
               <button type="button" onClick={() => setStep(1)} style={textButtonStyle(false)}>Back</button>
-              <button type="button" disabled={!platformValid || status === "loading"} onClick={validateUsername} style={textButtonStyle(!platformValid || status === "loading")}>
+              <button
+                type="submit"
+                className="signup-next-button"
+                disabled={!platformValid || status === "loading"}
+                style={textButtonStyle(!platformValid || status === "loading")}
+              >
                 {status === "loading" ? "checking..." : "Next"}
               </button>
             </div>
