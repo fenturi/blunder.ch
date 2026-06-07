@@ -7387,7 +7387,15 @@ function StudyWorkspacePage({ account, studyId, onBack, onDeleted, onStudyLoaded
     });
   }
 
+  const chapterCount = study?.chapters?.length || 0;
+  const chapterLimit = 10;
+
   async function handleAddChapter() {
+    if (chapterCount >= chapterLimit) {
+      setError(`Studies can have up to ${chapterLimit} chapters.`);
+      return;
+    }
+
     try {
       const response = await fetch(studyUrl("/chapters"), {
         method: "POST",
@@ -7395,7 +7403,7 @@ function StudyWorkspacePage({ account, studyId, onBack, onDeleted, onStudyLoaded
         body: JSON.stringify({
           provider: account.platform,
           username: account.username,
-          name: `Chapter ${(study?.chapters?.length || 0) + 1}`,
+          name: `Chapter ${chapterCount + 1}`,
         }),
       });
       const payload = await response.json();
@@ -7536,7 +7544,14 @@ function StudyWorkspacePage({ account, studyId, onBack, onDeleted, onStudyLoaded
             ))}
           </div>
           <div className="study-panel-actions">
-            <button type="button" onClick={handleAddChapter}>add chapter</button>
+            <button
+              type="button"
+              disabled={chapterCount >= chapterLimit}
+              title={chapterCount >= chapterLimit ? `${chapterLimit} chapter limit reached` : ""}
+              onClick={handleAddChapter}
+            >
+              add chapter ({chapterCount}/{chapterLimit})
+            </button>
             <button type="button" disabled={!activeChapter || (study?.chapters?.length || 0) <= 1} onClick={() => handleDeleteChapter(activeChapter.id)}>delete chapter</button>
             <button type="button" onClick={handleDeleteStudy}>delete study</button>
           </div>

@@ -1,5 +1,7 @@
 import { pool } from "../db.js";
 
+export const MAX_STUDY_CHAPTERS = 10;
+
 function normalizeStudy(row) {
   if (!row) return null;
 
@@ -115,22 +117,55 @@ export async function deleteStudyForUser({ userId, studyId }) {
 }
 
 export async function createChapterForUser({ userId, studyId, name }) {
-  const study = await getStudyForUser({ userId, studyId });
-  if (!study) return null;
+  const client = await pool.connect();
 
-  const nextOrder = study.chapters.length
-    ? Math.max(...study.chapters.map((chapter) => chapter.sort_order || 0)) + 1
-    : 0;
-  const { rows } = await pool.query(
-    `
-      insert into study_chapters (study_id, name, sort_order)
-      values ($1, $2, $3)
-      returning *
-    `,
-    [studyId, name.trim() || `Chapter ${nextOrder + 1}`, nextOrder]
-  );
-  await touchStudy(studyId);
-  return rows[0] ?? null;
+  try {
+    await client.query("BEGIN");
+    const studyResult = await client.query(
+      "select id from studies where id = $1 and user_id = $2 for update",
+      [studyId, userId]
+    );
+
+    if (!studyResult.rows[0]) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+
+    const chapterResult = await client.query(
+      `
+        select count(*)::int as chapter_count,
+               coalesce(max(sort_order), -1)::int as max_sort_order
+        from study_chapters
+        where study_id = $1
+      `,
+      [studyId]
+    );
+    const { chapter_count: chapterCount, max_sort_order: maxSortOrder } = chapterResult.rows[0];
+
+    if (chapterCount >= MAX_STUDY_CHAPTERS) {
+      const error = new Error(`Studies can have up to ${MAX_STUDY_CHAPTERS} chapters.`);
+      error.status = 409;
+      throw error;
+    }
+
+    const nextOrder = maxSortOrder + 1;
+    const { rows } = await client.query(
+      `
+        insert into study_chapters (study_id, name, sort_order)
+        values ($1, $2, $3)
+        returning *
+      `,
+      [studyId, name.trim() || `Chapter ${nextOrder + 1}`, nextOrder]
+    );
+    await client.query("update studies set updated_at = now() where id = $1", [studyId]);
+    await client.query("COMMIT");
+    return rows[0] ?? null;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function updateChapterForUser({ userId, studyId, chapterId, patch }) {
