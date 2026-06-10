@@ -41,6 +41,8 @@ const PIECE_SET_STORAGE_KEY = "blunder.pieceSet";
 const DISCORD_INVITE_URL = "https://discord.gg/cgDt8EksRc";
 const LANDING_NAVIGATION_EVENT = "blunder:navigate-landing";
 const UPGRADE_NAVIGATION_EVENT = "blunder:navigate-upgrade";
+const PROFILE_SETTINGS_NAVIGATION_EVENT = "blunder:navigate-profile-settings";
+const ACCOUNT_UPDATED_EVENT = "blunder:account-updated";
 const phases = ["Opening", "Middlegame", "Endgame"];
 const moveClassifications = ["book", "only", "best", "good", "inaccuracy", "mistake", "blunder", "miss"];
 const reviewClassifications = ["best", "good", "inaccuracy", "mistake", "blunder", "miss"];
@@ -88,6 +90,15 @@ const pieceSetPresets = [
       p: bP,
     },
   },
+];
+
+const avatarPresets = [
+  { id: "white-knight", label: "White knight", image: modernWN },
+  { id: "black-knight", label: "Black knight", image: modernBN },
+  { id: "white-bishop", label: "White bishop", image: modernWB },
+  { id: "black-bishop", label: "Black bishop", image: modernBB },
+  { id: "white-rook", label: "White rook", image: modernWR },
+  { id: "black-rook", label: "Black rook", image: modernBR },
 ];
 
 const classificationIcons = {
@@ -238,6 +249,9 @@ function createEmptyAccount() {
     analysisQueued: 0,
     analysisRunning: 0,
     isPremium: false,
+    avatarPreset: "white-knight",
+    avatarDataUrl: "",
+    profileSlug: "",
     badges: [],
   };
 }
@@ -288,6 +302,8 @@ function readStoredPieceSet() {
 function initialViewForAccount(account) {
   if (typeof window === "undefined") return account.username ? "dash" : "landing";
 
+  if (window.location.pathname.startsWith("/profile/")) return "profile";
+  if (window.location.pathname === "/profile-settings" && account.username) return "profile-settings";
   if (window.location.pathname.startsWith("/studies/") && account.username) return "study";
   if (window.location.pathname === "/analysis") return "sandbox";
   if (window.location.pathname === "/dev") return "dev";
@@ -304,8 +320,28 @@ function initialStudyIdFromLocation() {
   return match?.[1] || "";
 }
 
-function pathForView(view, studyId = "") {
+function profileFromLocation() {
+  if (typeof window === "undefined") return null;
+
+  const match = window.location.pathname.match(/^\/profile\/([^/]+)\/?$/);
+  if (!match) return null;
+
+  try {
+    return { slug: decodeURIComponent(match[1]) };
+  } catch {
+    return null;
+  }
+}
+
+function profilePath(profile) {
+  const slug = profile?.profile_slug || profile?.profileSlug || profile?.slug || profile?.username;
+  return slug ? `/profile/${encodeURIComponent(slug)}` : "/";
+}
+
+function pathForView(view, studyId = "", profile = null) {
   if (view === "study" && studyId) return `/studies/${studyId}`;
+  if (view === "profile" && profile) return profilePath(profile);
+  if (view === "profile-settings") return "/profile-settings";
   if (view === "sandbox") return "/analysis";
   if (view === "dev") return "/dev";
   if (view === "upgrade") return "/pro";
@@ -332,6 +368,9 @@ function storedAccountPayload(account) {
     analysisQueued: account.analysisQueued,
     analysisRunning: account.analysisRunning,
     isPremium: account.isPremium,
+    avatarPreset: account.avatarPreset,
+    avatarDataUrl: account.avatarDataUrl,
+    profileSlug: account.profileSlug,
     badges: account.badges,
   };
 }
@@ -3370,6 +3409,23 @@ function DashboardSettings({
   );
 }
 
+function avatarSource(profile) {
+  if (profile?.avatar_data_url || profile?.avatarDataUrl) {
+    return profile.avatar_data_url || profile.avatarDataUrl;
+  }
+
+  const presetId = profile?.avatar_preset || profile?.avatarPreset || "white-knight";
+  return avatarPresets.find((preset) => preset.id === presetId)?.image || avatarPresets[0].image;
+}
+
+function ProfileAvatar({ profile, size = "96px" }) {
+  return (
+    <span className="profile-avatar" style={{ width: size, height: size }}>
+      <img src={avatarSource(profile)} alt="" draggable="false" />
+    </span>
+  );
+}
+
 function LogoMark() {
   return (
     <span className="brand-mark" style={sx({ display: "inline-flex", alignItems: "center", gap: "10px" })}>
@@ -3649,8 +3705,13 @@ function AppShell({
   headerActions = null,
 }) {
   const copyrightYear = new Date().getFullYear();
-  const shellAccount = readStoredAccount();
+  const [shellAccount, setShellAccount] = useState(readStoredAccount);
   const showUpgradeAction = !!shellAccount.username && !shellAccount.isPremium && view !== "upgrade";
+  useEffect(() => {
+    const handleAccountUpdate = () => setShellAccount(readStoredAccount());
+    window.addEventListener(ACCOUNT_UPDATED_EVENT, handleAccountUpdate);
+    return () => window.removeEventListener(ACCOUNT_UPDATED_EVENT, handleAccountUpdate);
+  }, []);
   function handleLogoClick() {
     if (typeof window === "undefined") {
       onHome?.();
@@ -3663,6 +3724,11 @@ function AppShell({
     if (typeof window === "undefined") return;
 
     window.dispatchEvent(new CustomEvent(UPGRADE_NAVIGATION_EVENT));
+  }
+  function handleProfileClick() {
+    if (typeof window === "undefined") return;
+
+    window.dispatchEvent(new CustomEvent(PROFILE_SETTINGS_NAVIGATION_EVENT));
   }
 
   return (
@@ -3713,6 +3779,17 @@ function AppShell({
             />
           ) : null}
           {headerActions}
+          {shellAccount.username && view !== "profile-settings" && view !== "landing" ? (
+            <button
+              type="button"
+              className="header-profile-button"
+              onClick={handleProfileClick}
+              title={`${shellAccount.username} profile`}
+              aria-label="Open profile settings"
+            >
+              <img src={avatarSource(shellAccount)} alt="" draggable="false" />
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -3935,55 +4012,263 @@ const landingFeatures = [
   },
 ];
 
-const landingPlans = [
-  {
-    id: "regular",
-    name: "Regular",
-    price: "$0",
-    cadence: "per month",
-    allowance: "1 game",
-    refill: "24:00 hours",
-    summary: "For trying the review loop on one recent game at a time.",
-    rows: [
-      ["Daily analysis", "1 game"],
-      ["Refill", "Full allowance after 24 hours"],
-      ["Checkout", "No payment required"],
-    ],
-    included: ["Game import", "Move classifications", "Board review", "Opening explorer"],
-  },
-  {
-    id: "pro",
-    name: "Pro",
-    price: "$4",
-    cadence: "per month",
-    allowance: "5 games",
-    refill: "24:00 hours",
-    summary: "For players who review in batches and want the pattern to stick before the next session.",
-    rows: [
-      ["Daily analysis", "5 games"],
-      ["Refill", "Full allowance after 24 hours"],
-      ["Checkout", "Stripe subscription"],
-    ],
-    included: [
-      "Five full game reviews every day",
-      "Priority import and analysis queue",
-      "Premium badge on your account",
-      "Batch review for rook, pawn, and king-placement misses",
-    ],
-  },
-];
-
-const landingAssurances = [
-  ["billing", "Pro checkout is hosted by Stripe and activates only after a paid session is confirmed."],
-  ["ownership", "Your imported games stay attached to your blunder.ch account and review workspace."],
-  ["sandbox", "The standalone board can analyse positions without importing or saving a game."],
+const landingPlanComparison = [
+  ["Price", "Free", "$4 per month"],
+  ["Game reviews", "1 every 24 hours", "5 every 24 hours"],
+  ["Import and analysis queue", "Standard", "Priority"],
+  ["Move classifications", "Included", "Included"],
+  ["Board review", "Included", "Included"],
+  ["Opening explorer", "Included", "Included"],
+  ["Saved studies", "1 study", "Unlimited studies"],
+  ["Chapters per study", "Up to 10", "Up to 10"],
+  ["Teaching use", "Personal study workspace", "Reusable lesson workspaces"],
+  ["Account badge", "Standard profile", "Pro badge"],
 ];
 
 const landingQuotes = [
   ["I stopped blundering my rook in the endgame.", "fenturi12", "1450 -> 1620"],
   ["The review finally showed me why my rook checks were just noise.", "calmfile", "1320 -> 1495"],
   ["Seeing the same pawn ending mistake twice made it impossible to ignore.", "rankwalker", "1710 -> 1818"],
+  ["I thought I needed more openings. I actually needed to stop rushing move twenty.", "quiettempo", "1180 -> 1368"],
+  ["The move labels made my bad habits obvious without making the review feel like homework.", "fileclosed", "1540 -> 1672"],
+  ["I finally understood which mistakes were tactical and which ones started ten moves earlier.", "knightshift", "1645 -> 1779"],
+  ["Reviewing the position instead of only the engine number changed how I study.", "backranker", "1288 -> 1431"],
+  ["My endgames improved once I could see the same king-placement mistake across multiple games.", "opposition", "1820 -> 1914"],
+  ["The sandbox lets me test the move I wanted to play and immediately see what I missed.", "slowbishop", "1395 -> 1526"],
 ];
+
+function LandingQuotesCarousel() {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const [visibleCards, setVisibleCards] = useState(() => (
+    typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches ? 1 : 3
+  ));
+  const maxIndex = Math.max(0, landingQuotes.length - visibleCards);
+  const displayedIndex = Math.min(activeIndex, maxIndex);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 760px)");
+    const handleChange = () => setVisibleCards(media.matches ? 1 : 3);
+    media.addEventListener("change", handleChange);
+    return () => media.removeEventListener("change", handleChange);
+  }, []);
+
+  useEffect(() => {
+    if (isPaused || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return undefined;
+
+    const intervalId = window.setInterval(() => {
+      setActiveIndex((current) => current >= maxIndex ? 0 : current + 1);
+    }, 4600);
+    return () => window.clearInterval(intervalId);
+  }, [isPaused, maxIndex]);
+
+  const move = (direction) => {
+    setActiveIndex((current) => {
+      const normalized = Math.min(current, maxIndex);
+      if (direction > 0) return normalized >= maxIndex ? 0 : normalized + 1;
+      return normalized <= 0 ? maxIndex : normalized - 1;
+    });
+  };
+  const stepPercent = 100 / visibleCards;
+  const stepGap = 18 / visibleCards;
+
+  return (
+    <section
+      className="landing-testimonial landing-scroll-reveal"
+      onMouseEnter={() => setIsPaused(true)}
+      onMouseLeave={() => setIsPaused(false)}
+      onFocusCapture={() => setIsPaused(true)}
+      onBlurCapture={() => setIsPaused(false)}
+      aria-label="Player stories"
+    >
+      <div className="landing-quote-heading">
+        <span>player stories</span>
+        <div className="landing-quote-controls">
+          <button type="button" onClick={() => move(-1)} aria-label="Previous quote">←</button>
+          <button type="button" onClick={() => move(1)} aria-label="Next quote">→</button>
+        </div>
+      </div>
+
+      <div className="landing-quote-viewport">
+        <div
+          className="landing-quote-track"
+          style={{
+            transform: `translate3d(calc(-${displayedIndex * stepPercent}% - ${displayedIndex * stepGap}px), 0, 0)`,
+          }}
+        >
+          {[...landingQuotes, ...landingQuotes].map(([quote, user, rating], index) => (
+            <figure key={`${user}-${index}`} className="landing-proof landing-quote-card">
+              <blockquote>"{quote}"</blockquote>
+              <figcaption>
+                <span>{user}</span>
+                <span>{rating}</span>
+              </figcaption>
+            </figure>
+          ))}
+        </div>
+      </div>
+
+      <div className="landing-quote-dots" aria-label="Choose quote">
+        {Array.from({ length: maxIndex + 1 }).map((_, index) => (
+          <button
+            key={index}
+            type="button"
+            className={index === displayedIndex ? "is-active" : ""}
+            aria-label={`Show quote ${index + 1}`}
+            aria-current={index === displayedIndex ? "true" : undefined}
+            onClick={() => setActiveIndex(index)}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+const educationStudyChapters = [
+  {
+    number: "01",
+    title: "Why 6.Bg5 matters",
+    type: "Opening lesson",
+    fen: "rnbq1rk1/ppp1ppbp/3p1np1/6B1/2PPP3/2N2N2/PP3PPP/R2QKB1R b KQ - 4 6",
+    move: "6. Bg5",
+    from: "c1",
+    to: "g5",
+    line: ["6... h6", "7. Bh4", "g5", "8. Bg3"],
+    note: "The pin makes ...e5 harder to play cleanly and gives White time to choose between e5 and Qd2.",
+    activity: "Maya added a question for the group",
+  },
+  {
+    number: "02",
+    title: "Morphy vs Allies, 1858",
+    type: "Historical game",
+    fen: "rnb1kb1r/pp2qppp/2p2n2/4p3/2B1P3/1QN5/PPP2PPP/R1B1K2R w KQkq - 2 9",
+    move: "9. Bg5",
+    from: "c1",
+    to: "g5",
+    line: ["9. Bg5", "b5", "10. Nxb5", "cxb5"],
+    note: "Morphy develops with tempo instead of collecting material. The lesson is activity before the king can become safe.",
+    activity: "Coach Jordan annotated the critical move",
+  },
+];
+
+function LandingEducationSection() {
+  const [activeChapterIndex, setActiveChapterIndex] = useState(0);
+  const activeChapter = educationStudyChapters[activeChapterIndex];
+  const board = parseFenBoard(activeChapter.fen);
+  const pieceImages = pieceSetById("modern").images;
+  const files = ["a", "b", "c", "d", "e", "f", "g", "h"];
+
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return undefined;
+
+    const intervalId = window.setInterval(() => {
+      setActiveChapterIndex((current) => (current + 1) % educationStudyChapters.length);
+    }, 5200);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  return (
+    <section className="landing-education landing-scroll-reveal">
+      <div className="landing-education-copy">
+        <span className="landing-education-kicker">Studies for teaching</span>
+        <h2>Turn a position into a lesson that stays organized.</h2>
+        <p>
+          Build opening courses, preserve historical games, and annotate the moments students need to understand.
+          Every study stays saved so a lesson can continue after the call ends.
+        </p>
+
+        <div className="landing-education-values">
+          <article>
+            <span>Opening curriculum</span>
+            <p>Separate plans, sidelines, model games, and practice positions into named chapters.</p>
+          </article>
+          <article>
+            <span>Historical games</span>
+            <p>Save complete games with variations and explain why the critical decisions mattered.</p>
+          </article>
+          <article>
+            <span>Teach together</span>
+            <p>Send one study link and add collaborators for shared preparation, annotations, and review.</p>
+          </article>
+        </div>
+      </div>
+
+      <div className="landing-education-demo" aria-label="Animated example of an educational chess study">
+        <div className="landing-education-demo-header">
+          <div>
+            <span>EDUCATOR STUDY</span>
+            <strong>King's Indian: plans and model games</strong>
+          </div>
+          <span className="landing-education-share">copy study link</span>
+        </div>
+
+        <div className="landing-education-demo-body">
+          <div className="landing-education-chapters">
+            {educationStudyChapters.map((chapter, index) => (
+              <button
+                key={chapter.number}
+                type="button"
+                className={index === activeChapterIndex ? "landing-education-chapter is-active" : "landing-education-chapter"}
+                onClick={() => setActiveChapterIndex(index)}
+              >
+                <span>{chapter.number}</span>
+                <div>
+                  <strong>{chapter.title}</strong>
+                  <small>{chapter.type}</small>
+                </div>
+                <i aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+
+          <div key={activeChapter.number} className="landing-education-board">
+            <div className="landing-education-position" aria-label={`Position for ${activeChapter.title}`}>
+              {board.flatMap((row, rowIndex) => row.map((piece, columnIndex) => {
+                const square = `${files[columnIndex]}${8 - rowIndex}`;
+                const isHighlighted = square === activeChapter.from || square === activeChapter.to;
+                return (
+                  <span
+                    key={square}
+                    className={`${(rowIndex + columnIndex) % 2 === 0 ? "is-light" : "is-dark"}${isHighlighted ? " is-highlighted" : ""}`}
+                  >
+                    {piece ? <img src={pieceImages[piece]} alt="" draggable="false" /> : null}
+                  </span>
+                );
+              }))}
+            </div>
+
+            <div className="landing-education-lesson">
+              <div className="landing-education-current-move">
+                <span>FOCUS</span>
+                <strong>{activeChapter.move}</strong>
+              </div>
+              <div className="landing-education-line">
+                {activeChapter.line.map((move, index) => <span key={`${move}-${index}`}>{move}</span>)}
+              </div>
+              <div className="landing-education-note">
+                <span>TEACHING NOTE</span>
+                <p>{activeChapter.note}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="landing-education-collaborators">
+          <div className="landing-collaborator-stack" aria-hidden="true">
+            <span>JM</span>
+            <span>AK</span>
+            <span>+3</span>
+          </div>
+          <div>
+            <strong>{activeChapter.activity}</strong>
+            <small>Shared study activity</small>
+          </div>
+          <span key={activeChapter.number} className="landing-education-saved">chapter saved</span>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 const landingPreviewGames = [
   {
@@ -4433,133 +4718,8 @@ function LandingPreview() {
   );
 }
 
-function LandingPlanCard({ plan, featured = false, onChoose, delay = 0 }) {
-  return (
-    <article
-      className={featured ? "landing-plan is-featured" : "landing-plan"}
-      style={sx({
-        "--landing-row-delay": `${delay}ms`,
-        display: "grid",
-        gap: "22px",
-        alignContent: "start",
-        minHeight: "100%",
-        position: "relative",
-        overflow: "hidden",
-        border: featured ? "1px solid rgba(255,255,255,0.22)" : "1px solid rgba(255,255,255,0.08)",
-        borderRadius: "8px",
-        background: featured ? "rgba(255,255,255,0.058)" : "rgba(255,255,255,0.018)",
-        boxShadow: featured ? "0 18px 50px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.08)" : "none",
-        padding: "24px",
-      })}
-    >
-      <div style={sx({ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "16px" })}>
-        <div>
-          <div style={sx({ fontSize: "12px", letterSpacing: ".18em", textTransform: "uppercase", color: "rgba(255,255,255,0.34)", marginBottom: "9px" })}>
-            {plan.name}
-          </div>
-          <div style={sx({ display: "flex", alignItems: "baseline", gap: "8px", color: "#fff" })}>
-            <span style={sx({ fontSize: "34px", fontWeight: 200, lineHeight: 1 })}>{plan.price}</span>
-            <span style={sx({ fontSize: "12px", color: "rgba(255,255,255,0.36)" })}>{plan.cadence}</span>
-          </div>
-        </div>
-        {featured ? (
-          <span
-            className="landing-popular-badge"
-            style={sx({
-              color: "rgba(255,255,255,0.82)",
-              background: "rgba(255,255,255,0.12)",
-              fontSize: "10px",
-              letterSpacing: ".14em",
-              textTransform: "uppercase",
-              padding: "7px 9px",
-              borderRadius: "999px",
-            })}
-          >
-            popular
-          </span>
-        ) : null}
-      </div>
-
-      <p style={sx({ margin: 0, color: "rgba(255,255,255,0.5)", fontSize: "15px", lineHeight: 1.55 })}>
-        {plan.summary}
-      </p>
-
-      <div style={sx({ display: "grid", gap: "1px", borderTop: "1px solid rgba(255,255,255,0.07)", borderBottom: "1px solid rgba(255,255,255,0.07)" })}>
-        {plan.rows.map(([label, value]) => (
-          <div
-            key={label}
-            className="landing-plan-row"
-            style={sx({
-              display: "grid",
-              gridTemplateColumns: "128px minmax(0, 1fr)",
-              gap: "16px",
-              padding: "12px 0",
-              borderBottom: "1px solid rgba(255,255,255,0.045)",
-            })}
-          >
-            <span style={sx({ color: "rgba(255,255,255,0.28)", fontSize: "10px", letterSpacing: ".13em", textTransform: "uppercase" })}>
-              {label}
-            </span>
-            <span style={sx({ color: "rgba(255,255,255,0.68)", fontSize: "13px", minWidth: 0 })}>
-              {value}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      <div style={sx({ display: "grid", gap: "8px" })}>
-        {plan.included.map((item) => (
-          <div key={item} style={sx({ display: "flex", alignItems: "center", gap: "10px", color: "rgba(255,255,255,0.52)", fontSize: "13px" })}>
-            <span style={sx({
-              width: "16px",
-              height: "16px",
-              borderRadius: "50%",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              background: featured ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.06)",
-              color: featured ? "rgba(255,255,255,0.82)" : "rgba(255,255,255,0.48)",
-              flex: "0 0 auto",
-              fontSize: "11px",
-              lineHeight: 1,
-            })}>
-              ✓
-            </span>
-            <span>{item}</span>
-          </div>
-        ))}
-      </div>
-
-      <button
-        type="button"
-        onClick={onChoose}
-        className="landing-action"
-        style={sx({
-          alignSelf: "end",
-          justifySelf: "start",
-          border: featured ? "1px solid rgba(255,255,255,0.24)" : "1px solid rgba(255,255,255,0.1)",
-          background: featured ? "rgba(255,255,255,0.12)" : "transparent",
-          color: featured ? "#fff" : "rgba(255,255,255,0.56)",
-          minHeight: "38px",
-          padding: "9px 13px",
-          borderRadius: "6px",
-          fontFamily: "inherit",
-          fontSize: "12px",
-          letterSpacing: ".08em",
-          textTransform: "uppercase",
-          cursor: "pointer",
-        })}
-      >
-        {plan.id === "pro" ? "choose pro" : "start regular"}
-      </button>
-    </article>
-  );
-}
-
-function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis, onUpgrade }) {
+function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis }) {
   const hasAccount = !!account?.username;
-  const chooseRegular = hasAccount ? onDashboard : onSignUp;
-  const choosePro = hasAccount ? (onUpgrade || onDashboard) : onSignUp;
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -4742,127 +4902,45 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis, onUp
           </div>
         </section>
 
-        <section
-          className="landing-testimonial landing-scroll-reveal"
-          style={sx({
-            display: "grid",
-            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-            gap: "18px",
-            borderTop: "1px solid rgba(255,255,255,0.06)",
-            borderBottom: "1px solid rgba(255,255,255,0.06)",
-            padding: "24px 0",
-          })}
-        >
-          {landingQuotes.map(([quote, user, rating], index) => (
-            <figure
-              key={user}
-              className="landing-proof"
-              style={sx({
-                "--landing-row-delay": `${index * 90}ms`,
-                display: "grid",
-                gap: "16px",
-                margin: 0,
-                borderTop: "1px solid rgba(255,255,255,0.075)",
-                paddingTop: "14px",
-              })}
-            >
-              <blockquote
-                style={sx({
-                  margin: 0,
-                  color: "rgba(255,255,255,0.72)",
-                  fontSize: "18px",
-                  lineHeight: 1.48,
-                  fontWeight: 200,
-                })}
-              >
-                "{quote}"
-              </blockquote>
-              <figcaption
-                style={sx({
-                  display: "flex",
-                  justifyContent: "space-between",
-                  gap: "14px",
-                  color: "rgba(255,255,255,0.36)",
-                  fontSize: "11px",
-                  letterSpacing: ".12em",
-                  textTransform: "uppercase",
-                })}
-              >
-                <span>{user}</span>
-                <span>{rating}</span>
-              </figcaption>
-            </figure>
-          ))}
-        </section>
+        <LandingQuotesCarousel />
+
+        <LandingEducationSection />
 
         <section
           className="landing-pricing landing-scroll-reveal"
-          style={sx({
-            display: "grid",
-            gridTemplateColumns: "260px minmax(0, 1fr)",
-            gap: "44px",
-            borderTop: "1px solid rgba(255,255,255,0.06)",
-            paddingTop: "34px",
-          })}
         >
-          <div>
-            <div style={sx({ fontSize: "12px", letterSpacing: ".18em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)", marginBottom: "12px" })}>
-              plans
-            </div>
-            <div style={sx({ color: "rgba(255,255,255,0.48)", fontSize: "18px", lineHeight: 1.45 })}>
-              Start with one game, or unlock a five-game daily review session with Pro.
-            </div>
+          <div className="landing-pricing-heading">
+            <span>plans</span>
+            <h2>Compare Regular and Pro</h2>
+            <p>Both plans include the complete review experience. Pro increases review capacity, queue priority, and study access.</p>
           </div>
-          <div
-            className="landing-stagger"
-            style={sx({
-              display: "grid",
-              gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-              gap: "18px",
-            })}
-          >
-            {landingPlans.map((plan, index) => (
-              <LandingPlanCard
-                key={plan.id}
-                plan={plan}
-                featured={plan.id === "pro"}
-                onChoose={plan.id === "pro" ? choosePro : chooseRegular}
-                delay={index * 100}
-              />
-            ))}
-          </div>
-        </section>
 
-        <section
-          className="landing-assurance landing-scroll-reveal"
-          style={sx({
-            display: "grid",
-            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-            gap: "22px",
-            borderTop: "1px solid rgba(255,255,255,0.06)",
-            paddingTop: "28px",
-          })}
-        >
-          {landingAssurances.map(([label, body], index) => (
-            <div
-              key={label}
-              className="landing-proof"
-              style={sx({
-                "--landing-row-delay": `${index * 90}ms`,
-                display: "grid",
-                gap: "9px",
-                borderTop: "1px solid rgba(255,255,255,0.075)",
-                paddingTop: "14px",
-              })}
-            >
-              <span style={sx({ color: "rgba(255,255,255,0.3)", fontSize: "10px", letterSpacing: ".16em", textTransform: "uppercase" })}>
-                {label}
-              </span>
-              <span style={sx({ color: "rgba(255,255,255,0.48)", fontSize: "14px", lineHeight: 1.55 })}>
-                {body}
-              </span>
-            </div>
-          ))}
+          <div className="landing-plan-table-wrap">
+            <table className="landing-plan-table">
+              <thead>
+                <tr>
+                  <th scope="col">Feature</th>
+                  <th scope="col">
+                    <span>Regular</span>
+                    <strong>$0</strong>
+                  </th>
+                  <th scope="col" className="is-pro">
+                    <span>Pro</span>
+                    <strong>$4/month</strong>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {landingPlanComparison.map(([feature, regular, pro]) => (
+                  <tr key={feature}>
+                    <th scope="row">{feature}</th>
+                    <td>{regular}</td>
+                    <td className="is-pro">{pro}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
 
         <section
@@ -5032,6 +5110,216 @@ function SettingsPage({
         >
           dashboard
         </button>
+      </main>
+    </AppShell>
+  );
+}
+
+function ProfileSettingsPage({ account, onAccountChange, onOpenProfile, onBack }) {
+  const [avatarStatus, setAvatarStatus] = useState("");
+  const [avatarSaving, setAvatarSaving] = useState(false);
+  const profileUrl = typeof window === "undefined"
+    ? profilePath(account)
+    : `${window.location.origin}${profilePath(account)}`;
+
+  async function saveAvatar({ avatarPreset, avatarDataUrl = "" }) {
+    setAvatarSaving(true);
+    setAvatarStatus("");
+
+    try {
+      const response = await fetch(apiUrl("/api/users/profile"), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: account.platform,
+          username: account.username,
+          avatarPreset,
+          avatarDataUrl,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Unable to update profile picture.");
+
+      onAccountChange({
+        avatarPreset: payload.avatar_preset,
+        avatarDataUrl: payload.avatar_data_url || "",
+        profileSlug: payload.profile_slug || account.profileSlug,
+      });
+      setAvatarStatus("Profile picture updated.");
+    } catch (error) {
+      setAvatarStatus(error.message || "Unable to update profile picture.");
+    } finally {
+      setAvatarSaving(false);
+    }
+  }
+
+  function handleAvatarUpload(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type) || file.size > 500_000) {
+      setAvatarStatus("Use a PNG, JPEG, WebP, or GIF under 500 KB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => saveAvatar({
+      avatarPreset: account.avatarPreset || "white-knight",
+      avatarDataUrl: String(reader.result || ""),
+    });
+    reader.onerror = () => setAvatarStatus("Unable to read that image.");
+    reader.readAsDataURL(file);
+  }
+
+  return (
+    <AppShell view="profile-settings" onHome={onBack}>
+      <main className="profile-settings-page">
+        <div className="profile-settings-heading">
+          <span>/profile</span>
+          <h1>Your profile</h1>
+          <p>Choose how your account appears across blunder.ch.</p>
+        </div>
+
+        <section className="profile-settings">
+          <div className="dashboard-settings-header">
+            <span>profile picture</span>
+            <span>{account.isPremium ? "pro" : "free"}</span>
+          </div>
+
+          <div className="profile-settings-summary">
+            <ProfileAvatar profile={account} size="96px" />
+            <div>
+              <strong>{account.username}</strong>
+              <span>{account.platform}</span>
+              <button type="button" onClick={onOpenProfile}>view public profile</button>
+            </div>
+          </div>
+
+          <div className="profile-link-row">
+            <input value={profileUrl} readOnly aria-label="Public profile URL" />
+            <button
+              type="button"
+              onClick={() => navigator.clipboard?.writeText(profileUrl).then(
+                () => setAvatarStatus("Profile link copied."),
+                () => setAvatarStatus("Unable to copy profile link.")
+              )}
+            >
+              copy link
+            </button>
+          </div>
+
+          <div className="avatar-preset-grid">
+            {avatarPresets.map((preset) => {
+              const isActive = !account.avatarDataUrl && account.avatarPreset === preset.id;
+              return (
+                <button
+                  key={preset.id}
+                  type="button"
+                  disabled={avatarSaving}
+                  className={isActive ? "avatar-preset is-active" : "avatar-preset"}
+                  aria-pressed={isActive}
+                  onClick={() => saveAvatar({ avatarPreset: preset.id })}
+                >
+                  <ProfileAvatar profile={{ avatarPreset: preset.id }} size="58px" />
+                  <span>{preset.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="custom-avatar-upload">
+            <div>
+              <strong>Custom profile picture</strong>
+              <span>{account.isPremium ? "PNG, JPEG, WebP, or GIF. 500 KB maximum." : "Custom uploads are available with Pro."}</span>
+            </div>
+            <label className={account.isPremium ? "" : "is-disabled"}>
+              upload
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                disabled={!account.isPremium || avatarSaving}
+                onChange={handleAvatarUpload}
+              />
+            </label>
+          </div>
+
+          {avatarStatus ? <p className="profile-settings-status">{avatarStatus}</p> : null}
+        </section>
+
+        <button type="button" className="profile-back-button" onClick={onBack}>dashboard</button>
+      </main>
+    </AppShell>
+  );
+}
+
+function ProfilePage({ profileIdentity, onBack }) {
+  const [profile, setProfile] = useState(null);
+  const [status, setStatus] = useState("loading");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadProfile() {
+      setStatus("loading");
+      setError("");
+
+      try {
+        const response = await fetch(apiUrl(
+          `/api/users/profile/${encodeURIComponent(profileIdentity.slug)}`
+        ));
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || "Unable to load profile.");
+        if (active) setProfile(payload);
+      } catch (loadError) {
+        if (active) setError(loadError.message || "Unable to load profile.");
+      } finally {
+        if (active) setStatus("idle");
+      }
+    }
+
+    loadProfile();
+    return () => {
+      active = false;
+    };
+  }, [profileIdentity.slug]);
+
+  return (
+    <AppShell view="profile" onHome={onBack}>
+      <main className="profile-page">
+        {status === "loading" ? (
+          <section className="public-profile-card">Loading profile.</section>
+        ) : error ? (
+          <section className="public-profile-card">
+            <span className="profile-kicker">player profile</span>
+            <h1>Profile unavailable</h1>
+            <p>{error}</p>
+          </section>
+        ) : (
+          <section className="public-profile-card">
+            <ProfileAvatar profile={profile} size="132px" />
+            <div className="public-profile-copy">
+              <span className="profile-kicker">{profile.provider} player</span>
+              <h1>{profile.username}</h1>
+              <div className="public-profile-meta">
+                <span>{profile.is_premium ? "Pro member" : "Free member"}</span>
+                <span>
+                  Joined {profile.created_at
+                    ? new Date(profile.created_at).toLocaleDateString(undefined, { month: "long", year: "numeric" })
+                    : "recently"}
+                </span>
+              </div>
+              <div className="public-profile-badges">
+                {(profile.badges || []).map((badge) => (
+                  <span key={badge.id}>{badge.label}</span>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
+        <button type="button" className="profile-back-button" onClick={onBack}>back</button>
       </main>
     </AppShell>
   );
@@ -8183,6 +8471,7 @@ export default function App() {
   const [studiesLoading, setStudiesLoading] = useState(false);
   const [studiesError, setStudiesError] = useState("");
   const [selectedStudyId, setSelectedStudyId] = useState(initialStudyIdFromLocation);
+  const [selectedProfile, setSelectedProfile] = useState(profileFromLocation);
 
   function handleBoardThemeChange(themeId) {
     const nextThemeId = boardThemeById(themeId).id;
@@ -8207,6 +8496,7 @@ export default function App() {
 
     if (!account.username || !account.platform) {
       window.localStorage.removeItem(ACCOUNT_STORAGE_KEY);
+      window.dispatchEvent(new CustomEvent(ACCOUNT_UPDATED_EVENT));
       return;
     }
 
@@ -8214,6 +8504,7 @@ export default function App() {
       ACCOUNT_STORAGE_KEY,
       JSON.stringify(storedAccountPayload(account))
     );
+    window.dispatchEvent(new CustomEvent(ACCOUNT_UPDATED_EVENT));
   }, [account]);
 
   useEffect(() => {
@@ -8225,17 +8516,23 @@ export default function App() {
     const handleUpgradeNavigation = () => {
       setView(readStoredAccount().username ? "upgrade" : "signup");
     };
+    const handleProfileSettingsNavigation = () => {
+      if (readStoredAccount().username) setView("profile-settings");
+    };
     const handlePopState = () => {
       setSelectedStudyId(initialStudyIdFromLocation());
+      setSelectedProfile(profileFromLocation());
       setView(initialViewForAccount(readStoredAccount()));
     };
 
     window.addEventListener(LANDING_NAVIGATION_EVENT, handleLandingNavigation);
     window.addEventListener(UPGRADE_NAVIGATION_EVENT, handleUpgradeNavigation);
+    window.addEventListener(PROFILE_SETTINGS_NAVIGATION_EVENT, handleProfileSettingsNavigation);
     window.addEventListener("popstate", handlePopState);
     return () => {
       window.removeEventListener(LANDING_NAVIGATION_EVENT, handleLandingNavigation);
       window.removeEventListener(UPGRADE_NAVIGATION_EVENT, handleUpgradeNavigation);
+      window.removeEventListener(PROFILE_SETTINGS_NAVIGATION_EVENT, handleProfileSettingsNavigation);
       window.removeEventListener("popstate", handlePopState);
     };
   }, []);
@@ -8243,13 +8540,13 @@ export default function App() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const nextPath = pathForView(view, selectedStudyId);
+    const nextPath = pathForView(view, selectedStudyId, selectedProfile);
     const nextUrl = `${nextPath}${window.location.search}${window.location.hash}`;
 
     if (window.location.pathname !== nextPath) {
       window.history.pushState({}, "", nextUrl);
     }
-  }, [view, selectedStudyId]);
+  }, [view, selectedStudyId, selectedProfile]);
 
   function handleLogout() {
     setAccount(createEmptyAccount());
@@ -8265,6 +8562,7 @@ export default function App() {
     setStudiesError("");
     setStudiesLoading(false);
     setSelectedStudyId("");
+    setSelectedProfile(null);
     setDashboardReloadKey((current) => current + 1);
     setView("landing");
   }
@@ -8364,6 +8662,9 @@ export default function App() {
         setAccount((current) => ({
           ...current,
           isPremium: !!payload.is_premium,
+          avatarPreset: payload.avatar_preset || "white-knight",
+          avatarDataUrl: payload.avatar_data_url || "",
+          profileSlug: payload.profile_slug || payload.username,
           badges: payload.badges || [],
         }));
       } catch {
@@ -8706,6 +9007,15 @@ export default function App() {
     }
   }
 
+  if (view === "profile" && selectedProfile) {
+    return (
+      <ProfilePage
+        profileIdentity={selectedProfile}
+        onBack={() => setView(homeView())}
+      />
+    );
+  }
+
   if (view === "landing") {
     return (
       <LandingPage
@@ -8758,6 +9068,9 @@ export default function App() {
             username: user.username,
             platform: user.provider,
             isPremium: !!user.is_premium,
+            avatarPreset: user.avatar_preset || "white-knight",
+            avatarDataUrl: user.avatar_data_url || "",
+            profileSlug: user.profile_slug || user.username,
             badges: user.badges || [],
           };
 
@@ -8805,6 +9118,9 @@ export default function App() {
             username: user.username,
             platform: user.provider,
             isPremium: !!user.is_premium,
+            avatarPreset: user.avatar_preset || "white-knight",
+            avatarDataUrl: user.avatar_data_url || "",
+            profileSlug: user.profile_slug || user.username,
             badges: user.badges || [],
           });
           setCollapsedSections(createCollapsedSections());
@@ -8855,6 +9171,20 @@ export default function App() {
         onBoardThemeChange={handleBoardThemeChange}
         pieceSetId={pieceSetId}
         onPieceSetChange={handlePieceSetChange}
+        onBack={() => setView(homeView())}
+      />
+    );
+  }
+
+  if (view === "profile-settings" && account.username) {
+    return (
+      <ProfileSettingsPage
+        account={account}
+        onAccountChange={(patch) => setAccount((current) => ({ ...current, ...patch }))}
+        onOpenProfile={() => {
+          setSelectedProfile({ slug: account.profileSlug || account.username });
+          setView("profile");
+        }}
         onBack={() => setView(homeView())}
       />
     );

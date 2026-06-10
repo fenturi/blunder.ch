@@ -3,14 +3,26 @@ import { config } from "../config.js";
 import {
   getUserByDeviceId,
   getUserByEmail,
+  getUserByProfileSlug,
   getUserByProviderUsername,
   redeemPremium,
+  updateUserAvatar,
   upsertUser,
 } from "../repositories/usersRepository.js";
 import { hashPassword, verifyPassword } from "../utils/hash.js";
-import { publicUser } from "../utils/publicUser.js";
+import { publicProfile, publicUser } from "../utils/publicUser.js";
 
 export const usersRouter = express.Router();
+const avatarPresets = new Set([
+  "white-knight",
+  "black-knight",
+  "white-bishop",
+  "black-bishop",
+  "white-rook",
+  "black-rook",
+]);
+const customAvatarPattern = /^data:image\/(?:png|jpeg|webp|gif);base64,[a-z0-9+/=\r\n]+$/i;
+const maxCustomAvatarLength = 700_000;
 
 function parseIdentity(source) {
   const provider = source.provider?.toLowerCase();
@@ -49,6 +61,65 @@ usersRouter.get("/status", async (req, res, next) => {
     }
 
     return res.json(publicUser(user));
+  } catch (error) {
+    next(error);
+  }
+});
+
+usersRouter.get("/profile/:profileSlug", async (req, res, next) => {
+  try {
+    const profileSlug = req.params.profileSlug?.trim();
+    const user = profileSlug ? await getUserByProfileSlug(profileSlug) : null;
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    return res.json(publicProfile(user));
+  } catch (error) {
+    next(error);
+  }
+});
+
+usersRouter.patch("/profile", async (req, res, next) => {
+  try {
+    const identity = parseIdentity(req.body);
+
+    if (!identity) {
+      return res.status(400).json({ error: "provider and username are required" });
+    }
+
+    const user = await getUserByProviderUsername(identity);
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const avatarPreset = req.body.avatarPreset?.trim();
+    const avatarDataUrl = req.body.avatarDataUrl?.trim() || null;
+
+    if (avatarDataUrl) {
+      if (!user.is_premium) {
+        return res.status(403).json({ error: "Custom profile pictures require Pro." });
+      }
+
+      if (
+        avatarDataUrl.length > maxCustomAvatarLength
+        || !customAvatarPattern.test(avatarDataUrl)
+      ) {
+        return res.status(400).json({ error: "Use a PNG, JPEG, WebP, or GIF under 500 KB." });
+      }
+    } else if (!avatarPresets.has(avatarPreset)) {
+      return res.status(400).json({ error: "Select a valid profile picture." });
+    }
+
+    const updatedUser = await updateUserAvatar({
+      ...identity,
+      avatarPreset: avatarDataUrl ? user.avatar_preset || "white-knight" : avatarPreset,
+      avatarDataUrl,
+    });
+
+    return res.json(publicUser(updatedUser));
   } catch (error) {
     next(error);
   }

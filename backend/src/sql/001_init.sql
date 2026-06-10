@@ -9,6 +9,9 @@ create table if not exists users (
   device_id text,
   is_premium boolean not null default false,
   premium_redeemed_at timestamptz,
+  avatar_preset text not null default 'white-knight',
+  avatar_data_url text,
+  profile_slug text,
   created_at timestamptz not null default now(),
   unique (provider, username)
 );
@@ -18,7 +21,12 @@ alter table users
   add column if not exists password_hash text,
   add column if not exists device_id text,
   add column if not exists is_premium boolean not null default false,
-  add column if not exists premium_redeemed_at timestamptz;
+  add column if not exists premium_redeemed_at timestamptz,
+  add column if not exists avatar_preset text not null default 'white-knight',
+  add column if not exists avatar_data_url text,
+  add column if not exists profile_slug text;
+
+create unique index if not exists users_profile_slug_unique_idx on users (profile_slug) where profile_slug is not null;
 
 create unique index if not exists users_email_unique_idx on users (lower(email)) where email is not null;
 create unique index if not exists users_device_id_unique_idx on users (device_id) where device_id is not null;

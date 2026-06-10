@@ -37,6 +37,22 @@ export function publicUser(user) {
     is_premium: user.is_premium,
     premium_redeemed_at: user.premium_redeemed_at,
     created_at: user.created_at,
+    avatar_preset: user.avatar_preset || "white-knight",
+    avatar_data_url: user.avatar_data_url || null,
+    profile_slug: user.profile_slug || user.username,
+    badges: userBadges(user),
+  };
+}
+
+export function publicProfile(user) {
+  return {
+    provider: user.provider,
+    username: user.username,
+    is_premium: user.is_premium,
+    created_at: user.created_at,
+    avatar_preset: user.avatar_preset || "white-knight",
+    avatar_data_url: user.avatar_data_url || null,
+    profile_slug: user.profile_slug || user.username,
     badges: userBadges(user),
   };
 }

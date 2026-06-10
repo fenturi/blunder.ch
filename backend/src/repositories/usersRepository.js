@@ -25,7 +25,7 @@ export async function upsertUser({ provider, username, email = null, passwordHas
     isPremium,
     deviceId,
   ]);
-  return rows[0];
+  return ensureProfileSlug(rows[0]);
 }
 
 export async function getUserByEmail(email) {
@@ -44,6 +44,14 @@ export async function getUserByProviderUsername({ provider, username }) {
   `;
 
   const { rows } = await pool.query(query, [provider, username.toLowerCase()]);
+  return rows[0] ?? null;
+}
+
+export async function getUserByProfileSlug(profileSlug) {
+  const { rows } = await pool.query(
+    "select * from users where profile_slug = lower($1)",
+    [profileSlug]
+  );
   return rows[0] ?? null;
 }
 
@@ -70,4 +78,48 @@ export async function redeemPremium({ provider, username }) {
 
 export async function activatePremium({ provider, username }) {
   return redeemPremium({ provider, username });
+}
+
+export async function updateUserAvatar({ provider, username, avatarPreset, avatarDataUrl }) {
+  const { rows } = await pool.query(
+    `
+      update users
+      set avatar_preset = $3,
+          avatar_data_url = $4
+      where provider = $1 and username = $2
+      returning *
+    `,
+    [provider, username.toLowerCase(), avatarPreset, avatarDataUrl]
+  );
+  return rows[0] ?? null;
+}
+
+async function ensureProfileSlug(user) {
+  if (!user || user.profile_slug) return user;
+
+  const baseSlug = user.username
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "player";
+  const providerSlug = user.provider.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const candidates = [baseSlug, `${baseSlug}-${providerSlug}`, `${baseSlug}-${user.id.slice(0, 8)}`];
+
+  for (const candidate of candidates) {
+    try {
+      const { rows } = await pool.query(
+        `
+          update users
+          set profile_slug = $2
+          where id = $1 and profile_slug is null
+          returning *
+        `,
+        [user.id, candidate]
+      );
+      if (rows[0]) return rows[0];
+    } catch (error) {
+      if (error.code !== "23505") throw error;
+    }
+  }
+
+  return getUserByProviderUsername(user);
 }
