@@ -4085,7 +4085,7 @@ const educationStudyChapters = [
     title: "Morphy vs Allies, 1858",
     type: "Historical game",
     fen: "rnb1kb1r/pp2qppp/2p2n2/4p3/2B1P3/1QN5/PPP2PPP/R1B1K2R w KQkq - 2 9",
-    move: "9. Bg5",
+    move: "9. Bc1",
     from: "c1",
     to: "g5",
     line: ["9. Bg5", "b5", "10. Nxb5", "cxb5"],
