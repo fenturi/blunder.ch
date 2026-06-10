@@ -4038,87 +4038,30 @@ const landingQuotes = [
 ];
 
 function LandingQuotesCarousel() {
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [isPaused, setIsPaused] = useState(false);
-  const [visibleCards, setVisibleCards] = useState(() => (
-    typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches ? 1 : 3
-  ));
-  const maxIndex = Math.max(0, landingQuotes.length - visibleCards);
-  const displayedIndex = Math.min(activeIndex, maxIndex);
-
-  useEffect(() => {
-    const media = window.matchMedia("(max-width: 760px)");
-    const handleChange = () => setVisibleCards(media.matches ? 1 : 3);
-    media.addEventListener("change", handleChange);
-    return () => media.removeEventListener("change", handleChange);
-  }, []);
-
-  useEffect(() => {
-    if (isPaused || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return undefined;
-
-    const intervalId = window.setInterval(() => {
-      setActiveIndex((current) => current >= maxIndex ? 0 : current + 1);
-    }, 4600);
-    return () => window.clearInterval(intervalId);
-  }, [isPaused, maxIndex]);
-
-  const move = (direction) => {
-    setActiveIndex((current) => {
-      const normalized = Math.min(current, maxIndex);
-      if (direction > 0) return normalized >= maxIndex ? 0 : normalized + 1;
-      return normalized <= 0 ? maxIndex : normalized - 1;
-    });
-  };
-  const stepPercent = 100 / visibleCards;
-  const stepGap = 18 / visibleCards;
-
   return (
-    <section
-      className="landing-testimonial landing-scroll-reveal"
-      onMouseEnter={() => setIsPaused(true)}
-      onMouseLeave={() => setIsPaused(false)}
-      onFocusCapture={() => setIsPaused(true)}
-      onBlurCapture={() => setIsPaused(false)}
-      aria-label="Player stories"
-    >
-      <div className="landing-quote-heading">
-        <span>player stories</span>
-        <div className="landing-quote-controls">
-          <button type="button" onClick={() => move(-1)} aria-label="Previous quote">←</button>
-          <button type="button" onClick={() => move(1)} aria-label="Next quote">→</button>
-        </div>
-      </div>
+    <section className="landing-testimonial landing-scroll-reveal" aria-label="Player stories">
+      <div className="landing-quote-heading">player stories</div>
 
       <div className="landing-quote-viewport">
-        <div
-          className="landing-quote-track"
-          style={{
-            transform: `translate3d(calc(-${displayedIndex * stepPercent}% - ${displayedIndex * stepGap}px), 0, 0)`,
-          }}
-        >
-          {[...landingQuotes, ...landingQuotes].map(([quote, user, rating], index) => (
-            <figure key={`${user}-${index}`} className="landing-proof landing-quote-card">
-              <blockquote>"{quote}"</blockquote>
-              <figcaption>
-                <span>{user}</span>
-                <span>{rating}</span>
-              </figcaption>
-            </figure>
+        <div className="landing-quote-track">
+          {[0, 1].map((groupIndex) => (
+            <div
+              key={groupIndex}
+              className="landing-quote-group"
+              aria-hidden={groupIndex === 1 ? "true" : undefined}
+            >
+              {landingQuotes.map(([quote, user, rating]) => (
+                <figure key={`${groupIndex}-${user}`} className="landing-quote-card">
+                  <blockquote>"{quote}"</blockquote>
+                  <figcaption>
+                    <span>{user}</span>
+                    <span>{rating}</span>
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
           ))}
         </div>
-      </div>
-
-      <div className="landing-quote-dots" aria-label="Choose quote">
-        {Array.from({ length: maxIndex + 1 }).map((_, index) => (
-          <button
-            key={index}
-            type="button"
-            className={index === displayedIndex ? "is-active" : ""}
-            aria-label={`Show quote ${index + 1}`}
-            aria-current={index === displayedIndex ? "true" : undefined}
-            onClick={() => setActiveIndex(index)}
-          />
-        ))}
       </div>
     </section>
   );
@@ -4885,7 +4828,7 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis }) {
               ) : null}
             </div>
             <div className="landing-status-row">
-              <span>12 games analyzed</span>
+              <span>843 games analyzed</span>
               <span>Stockfish review</span>
               <span>Opening, middlegame, endgame patterns</span>
             </div>

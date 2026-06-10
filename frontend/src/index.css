@@ -1764,44 +1764,18 @@ textarea:focus-visible {
 }
 
 .landing-quote-heading,
-.landing-quote-controls,
-.landing-quote-card figcaption,
-.landing-quote-dots {
+.landing-quote-card figcaption {
   display: flex;
   align-items: center;
 }
 
 .landing-quote-heading {
   min-height: 12px;
-}
-
-.landing-quote-heading > span {
   color: var(--text-faint);
   font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-}
-
-.landing-quote-controls {
-  display: none !important;
-}
-
-.landing-quote-controls button {
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  background: var(--panel);
-  color: var(--text-muted);
-  cursor: pointer;
-  font: inherit;
-  font-size: 15px;
-}
-
-.landing-quote-controls button:hover {
-  border-color: rgba(125, 211, 252, 0.35);
-  color: var(--accent);
 }
 
 .landing-quote-viewport {
@@ -1813,20 +1787,29 @@ textarea:focus-visible {
 .landing-quote-track {
   width: max-content;
   display: flex;
-  gap: 9px;
   will-change: transform;
   animation: landingQuoteMarquee 72s linear infinite;
 }
 
+.landing-quote-group {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 9px;
+  padding-right: 9px;
+}
+
 .landing-quote-card {
+  flex: 0 0 auto;
   width: clamp(220px, 22vw, 300px);
-  min-width: 0;
   min-height: 88px;
   padding: 11px 13px !important;
   margin: 0;
   display: grid;
   align-content: space-between;
   gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: rgba(17, 19, 21, 0.62);
 }
 
 .landing-quote-card blockquote {
@@ -1846,28 +1829,9 @@ textarea:focus-visible {
   text-transform: uppercase;
 }
 
-.landing-quote-dots {
-  display: none !important;
-}
-
-.landing-quote-dots button {
-  width: 18px;
-  height: 3px;
-  border: 0;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
-  cursor: pointer;
-  transition: width 180ms ease, background 180ms ease;
-}
-
-.landing-quote-dots button.is-active {
-  width: 32px;
-  background: var(--accent);
-}
-
 @keyframes landingQuoteMarquee {
   to {
-    transform: translateX(calc(-50% - 4.5px));
+    transform: translate3d(-50%, 0, 0);
   }
 }
 
@@ -3625,6 +3589,11 @@ textarea:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .app-shell-landing::before,
+  .app-shell-landing::after {
+    animation: none;
+  }
+
   .landing-quote-track {
     animation: none;
   }
@@ -4583,6 +4552,56 @@ body {
 /* Landing mobile polish: compact header and centered preview board. */
 .app-shell-landing {
   width: 100%;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 340px),
+    #080909 !important;
+}
+
+.app-shell-landing::before,
+.app-shell-landing::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: 50%;
+  filter: blur(90px);
+  will-change: transform;
+}
+
+.app-shell-landing::before {
+  width: min(72vw, 1040px);
+  height: min(72vw, 1040px);
+  top: 4%;
+  right: -24%;
+  background: radial-gradient(circle, rgba(125, 211, 252, 0.095), rgba(75, 103, 119, 0.035) 48%, transparent 72%);
+  animation: landingAmbientBlue 24s ease-in-out infinite alternate;
+}
+
+.app-shell-landing::after {
+  width: min(64vw, 900px);
+  height: min(64vw, 900px);
+  top: 46%;
+  left: -22%;
+  background: radial-gradient(circle, rgba(105, 123, 134, 0.075), rgba(65, 91, 104, 0.03) 50%, transparent 73%);
+  animation: landingAmbientGray 31s ease-in-out infinite alternate;
+}
+
+@keyframes landingAmbientBlue {
+  from {
+    transform: translate3d(0, -3%, 0) scale(0.94);
+  }
+  to {
+    transform: translate3d(-18%, 16%, 0) scale(1.08);
+  }
+}
+
+@keyframes landingAmbientGray {
+  from {
+    transform: translate3d(-4%, 8%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(22%, -14%, 0) scale(1.12);
+  }
 }
 
 .app-shell-landing .landing-page,
