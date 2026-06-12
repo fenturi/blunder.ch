@@ -3434,21 +3434,22 @@ function LogoMark() {
     <span className="brand-mark" style={sx({ display: "inline-flex", alignItems: "center", gap: "10px" })}>
       <img className="brand-favicon" src={brandIcon} alt="" aria-hidden="true" />
       <span className="brand-name">blunder.ch</span>
+      <span className="brand-beta">beta</span>
     </span>
   );
 }
 
-function LandingProAction({ isPremium, onAccount }) {
+function LandingProAction({ isPremium, onAccount, onUpgrade }) {
   return (
     <motion.button
       type="button"
       className={`landing-pro-action${isPremium ? " is-active" : ""}`}
-      onClick={onAccount}
-      aria-label={isPremium ? "Open Pro account" : "Open account to update to Pro"}
+      onClick={isPremium ? onAccount : onUpgrade}
+      aria-label={isPremium ? "Open Pro account" : "Activate Pro"}
       whileTap={{ scale: 0.94 }}
     >
       <span className="landing-pro-action-dot" aria-hidden="true" />
-      <span>{isPremium ? "Pro" : "Pro update"}</span>
+      <span>{isPremium ? "Pro" : "Activate Pro"}</span>
     </motion.button>
   );
 }
@@ -4726,7 +4727,7 @@ function LandingAnalysisSection() {
   );
 }
 
-function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis, onAccount }) {
+function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis, onAccount, onUpgrade }) {
   const hasAccount = !!account?.username;
   const reduceMotion = useReducedMotion();
 
@@ -4771,6 +4772,7 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis, onAc
         <LandingProAction
           isPremium={!!account?.isPremium}
           onAccount={onAccount}
+          onUpgrade={onUpgrade}
         />
       )}
     >
@@ -4909,9 +4911,9 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis, onAc
               ) : null}
             </div>
             <div className="landing-status-row">
-              <span>Named lesson chapters</span>
-              <span>Shared study links</span>
-              <span>Board-first teaching notes</span>
+              <span>1434 games analyzed</span>
+              <span>180 users</span>
+              <span>∞ study sessions</span>
             </div>
           </motion.div>
           <motion.div

@@ -1519,6 +1519,21 @@ textarea:focus-visible {
   line-height: 1;
 }
 
+.brand-beta {
+  align-self: center;
+  margin-left: -3px;
+  padding: 4px 7px 3px;
+  border: 1px solid rgba(74, 222, 128, 0.24);
+  border-radius: 999px;
+  background: rgba(74, 222, 128, 0.08);
+  color: #69df94;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
 .app-shell-actions button,
 .landing-action,
 .rail-action {
@@ -4540,6 +4555,10 @@ body {
     display: none;
   }
 
+  .app-shell-dash .brand-beta {
+    display: none;
+  }
+
   .app-shell-dash .app-shell-header > button {
     flex: 0 0 auto;
   }
@@ -4683,6 +4702,12 @@ body {
 
   .app-shell-landing .brand-name {
     font-size: clamp(24px, 8vw, 30px);
+  }
+
+  .app-shell-landing .brand-beta {
+    margin-left: -5px;
+    padding: 3px 5px;
+    font-size: 7px;
   }
 
   .app-shell-landing .app-shell-actions:empty {
