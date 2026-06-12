@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import bB from "./assets/bB.webp";
 import bK from "./assets/bK.webp";
 import bN from "./assets/bN.webp";
@@ -29,7 +30,7 @@ import moveIcon4 from "./assets/4.png";
 import moveIcon5 from "./assets/5.png";
 import moveIcon6 from "./assets/6.png";
 import moveIcon7 from "./assets/7.png";
-import brandIcon from "./assets/icon.png";
+import brandIcon from "./assets/icon-green.png";
 import DevPanel from "./components/DevPanel.jsx";
 import SignupWizard from "./components/SignupWizard.jsx";
 import { apiUrl } from "./lib/api.js";
@@ -116,11 +117,11 @@ const classificationIcons = {
 const boardColorPresets = [
   {
     id: "default",
-    label: "Blunder blue",
-    light: "#b9dff0",
-    dark: "#39718a",
-    board: "#0b1114",
-    border: "rgba(125,211,252,0.24)",
+    label: "Blunder green",
+    light: "#c8ebd4",
+    dark: "#3d7754",
+    board: "#09120d",
+    border: "rgba(74,222,128,0.24)",
     coordinateLight: "rgba(7,8,8,0.5)",
     coordinateDark: "rgba(244,244,245,0.62)",
   },
@@ -306,6 +307,7 @@ function initialViewForAccount(account) {
   if (window.location.pathname === "/profile-settings" && account.username) return "profile-settings";
   if (window.location.pathname.startsWith("/studies/") && account.username) return "study";
   if (window.location.pathname === "/analysis") return "sandbox";
+  if (window.location.pathname === "/account") return "account";
   if (window.location.pathname === "/dev") return "dev";
   if (window.location.pathname === "/pro") return "upgrade";
   if (window.location.pathname === "/import" && account.username) return "import";
@@ -343,12 +345,13 @@ function pathForView(view, studyId = "", profile = null) {
   if (view === "profile" && profile) return profilePath(profile);
   if (view === "profile-settings") return "/profile-settings";
   if (view === "sandbox") return "/analysis";
+  if (view === "account") return "/account";
   if (view === "dev") return "/dev";
   if (view === "upgrade") return "/pro";
   if (view === "import") return "/import";
   if (view === "settings") return "/settings";
 
-  return ["dash", "loading", "account", "analysis"].includes(view)
+  return ["dash", "loading", "analysis"].includes(view)
     ? "/dashboard"
     : "/";
 }
@@ -3435,6 +3438,21 @@ function LogoMark() {
   );
 }
 
+function LandingProAction({ isPremium, onAccount }) {
+  return (
+    <motion.button
+      type="button"
+      className={`landing-pro-action${isPremium ? " is-active" : ""}`}
+      onClick={onAccount}
+      aria-label={isPremium ? "Open Pro account" : "Open account to update to Pro"}
+      whileTap={{ scale: 0.94 }}
+    >
+      <span className="landing-pro-action-dot" aria-hidden="true" />
+      <span>{isPremium ? "Pro" : "Pro update"}</span>
+    </motion.button>
+  );
+}
+
 function PlaceholderRow({ index }) {
   return (
     <div
@@ -4094,7 +4112,7 @@ const educationStudyChapters = [
   },
 ];
 
-function LandingEducationSection() {
+function LandingEducationDemo({ className = "" }) {
   const [activeChapterIndex, setActiveChapterIndex] = useState(0);
   const activeChapter = educationStudyChapters[activeChapterIndex];
   const board = parseFenBoard(activeChapter.fen);
@@ -4111,32 +4129,7 @@ function LandingEducationSection() {
   }, []);
 
   return (
-    <section className="landing-education landing-scroll-reveal">
-      <div className="landing-education-copy">
-        <span className="landing-education-kicker">Studies for teaching</span>
-        <h2>Turn a position into a lesson that stays organized.</h2>
-        <p>
-          Build opening courses, preserve historical games, and annotate the moments students need to understand.
-          Every study stays saved so a lesson can continue after the call ends.
-        </p>
-
-        <div className="landing-education-values">
-          <article>
-            <span>Opening curriculum</span>
-            <p>Separate plans, sidelines, model games, and practice positions into named chapters.</p>
-          </article>
-          <article>
-            <span>Historical games</span>
-            <p>Save complete games with variations and explain why the critical decisions mattered.</p>
-          </article>
-          <article>
-            <span>Teach together</span>
-            <p>Send one study link and add collaborators for shared preparation, annotations, and review.</p>
-          </article>
-        </div>
-      </div>
-
-      <div className="landing-education-demo" aria-label="Animated example of an educational chess study">
+      <div className={`landing-education-demo ${className}`.trim()} aria-label="Animated example of an educational chess study">
         <div className="landing-education-demo-header">
           <div>
             <span>EDUCATOR STUDY</span>
@@ -4208,6 +4201,35 @@ function LandingEducationSection() {
           </div>
           <span key={activeChapter.number} className="landing-education-saved">chapter saved</span>
         </div>
+      </div>
+  );
+}
+
+function LandingEducationSection() {
+  return (
+    <section className="landing-education landing-education-overview landing-scroll-reveal">
+      <div className="landing-education-copy">
+        <span className="landing-education-kicker">Built for educators</span>
+        <h2>Teach the idea behind the move.</h2>
+        <p>
+          Build opening courses, preserve historical games, and annotate the moments students need to understand.
+          Every study stays saved so a lesson can continue after the call ends.
+        </p>
+      </div>
+
+      <div className="landing-education-values">
+        <article>
+          <span>Opening curriculum</span>
+          <p>Separate plans, sidelines, model games, and practice positions into named chapters.</p>
+        </article>
+        <article>
+          <span>Historical games</span>
+          <p>Save complete games with variations and explain why the critical decisions mattered.</p>
+        </article>
+        <article>
+          <span>Teach together</span>
+          <p>Send one study link and add collaborators for shared preparation, annotations, and review.</p>
+        </article>
       </div>
     </section>
   );
@@ -4586,6 +4608,7 @@ function LandingPreviewBoard({ preview, showMoveAfter }) {
 }
 
 function LandingPreview() {
+  const reduceMotion = useReducedMotion();
   const [activePreview, setActivePreview] = useState({ gameIndex: 0, moveIndex: 0 });
   const [activeMoveSettled, setActiveMoveSettled] = useState(false);
   const [transitionPreview, setTransitionPreview] = useState(null);
@@ -4628,8 +4651,12 @@ function LandingPreview() {
   }, [activePreview, activeMoveSettled]);
 
   return (
-    <div
+    <motion.div
       className={transitionPreview ? "landing-preview is-transitioning" : "landing-preview"}
+      initial={reduceMotion ? false : { opacity: 0, y: 24, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.72, delay: 0.18, ease: [0.2, 0.8, 0.2, 1] }}
+      whileHover={reduceMotion ? undefined : { y: -5, rotateX: 0.8, rotateY: -0.8 }}
       style={sx({
         display: "grid",
         minWidth: 0,
@@ -4657,12 +4684,51 @@ function LandingPreview() {
           </div>
         ) : null}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
-function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis }) {
+function LandingAnalysisSection() {
+  return (
+    <section className="landing-analysis landing-scroll-reveal">
+      <div className="landing-analysis-heading">
+        <span>Supporting analysis</span>
+        <h2>The engine serves the lesson.</h2>
+        <p>
+          Find the costly move, explain why the position changed, and explore better continuations without turning the lesson into a wall of engine output.
+        </p>
+      </div>
+
+      <div className="landing-analysis-layout">
+        <div className="landing-analysis-preview">
+          <LandingPreview />
+        </div>
+
+        <div className="landing-stagger landing-analysis-features">
+          {landingFeatures.map((feature, index) => (
+            <article
+              key={feature.title}
+              className="landing-feature"
+              style={sx({
+                "--landing-row-delay": `${index * 90}ms`,
+                display: "grid",
+                gap: "9px",
+              })}
+            >
+              <span>{feature.kicker}</span>
+              <h3>{feature.title}</h3>
+              <p>{feature.body}</p>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis, onAccount }) {
   const hasAccount = !!account?.username;
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -4698,7 +4764,16 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis }) {
   }, []);
 
   return (
-    <AppShell view="landing" onHome={() => {}}>
+    <AppShell
+      view="landing"
+      onHome={() => {}}
+      headerActions={(
+        <LandingProAction
+          isPremium={!!account?.isPremium}
+          onAccount={onAccount}
+        />
+      )}
+    >
       <main
         className="landing-page"
         style={sx({
@@ -4707,8 +4782,11 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis }) {
           gap: "68px",
         })}
       >
-        <section
+        <motion.section
           className="landing-hero"
+          initial={reduceMotion ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.55 }}
           style={sx({
             display: "grid",
             gridTemplateColumns: "minmax(320px, 0.98fr) minmax(420px, 0.92fr)",
@@ -4717,8 +4795,11 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis }) {
             position: "relative",
           })}
         >
-          <div
+          <motion.div
             className="landing-hero-copy"
+            initial={reduceMotion ? false : { opacity: 0, x: -26 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.7, ease: [0.2, 0.8, 0.2, 1] }}
             style={sx({
               display: "grid",
               gap: "28px",
@@ -4729,7 +4810,7 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis }) {
             })}
           >
             <div style={sx({ fontSize: "12px", letterSpacing: ".18em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)" })}>
-              chess analysis for games you actually played
+              chess studies for teaching and learning
             </div>
             <h1
               className="landing-title"
@@ -4743,7 +4824,7 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis }) {
                 maxWidth: "720px",
               })}
             >
-              Don't lose the same way twice.
+              Chess education, reimagined.
             </h1>
             <p
               className="landing-copy"
@@ -4755,7 +4836,7 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis }) {
                 lineHeight: 1.55,
               })}
             >
-              Import your online games, find the moments that changed them, and review each mistake with board context instead of a wall of engine output.
+              Build opening courses, preserve model games, annotate critical moments, and share a study students can return to after the lesson ends.
             </p>
             <div
               className="landing-cta-row"
@@ -4779,7 +4860,7 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis }) {
                   cursor: "pointer",
                 })}
               >
-                {hasAccount ? "open dashboard" : "start analysis"}
+                {hasAccount ? "open dashboard" : "create a study"}
               </button>
               <button
                 type="button"
@@ -4799,7 +4880,7 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis }) {
                   cursor: "pointer",
                 })}
               >
-                sandbox
+                analyze a position
               </button>
               {!hasAccount ? (
                 <button
@@ -4828,26 +4909,31 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis }) {
               ) : null}
             </div>
             <div className="landing-status-row">
-              <span>843 games analyzed</span>
-              <span>Stockfish review</span>
-              <span>Opening, middlegame, endgame patterns</span>
+              <span>Named lesson chapters</span>
+              <span>Shared study links</span>
+              <span>Board-first teaching notes</span>
             </div>
-          </div>
-          <div
+          </motion.div>
+          <motion.div
             className="landing-hero-preview"
+            initial={reduceMotion ? false : { opacity: 0, x: 30 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.72, delay: 0.08, ease: [0.2, 0.8, 0.2, 1] }}
             style={sx({
               position: "relative",
               zIndex: 1,
               marginLeft: "-52px",
             })}
           >
-            <LandingPreview />
-          </div>
-        </section>
-
-        <LandingQuotesCarousel />
+            <LandingEducationDemo className="landing-hero-education-demo" />
+          </motion.div>
+        </motion.section>
 
         <LandingEducationSection />
+
+        <LandingAnalysisSection />
+
+        <LandingQuotesCarousel />
 
         <section
           className="landing-pricing landing-scroll-reveal"
@@ -4949,53 +5035,6 @@ function LandingPage({ account, onSignUp, onLogin, onDashboard, onAnalysis }) {
           </div>
         </section>
 
-        <section
-          className="landing-detail-grid landing-scroll-reveal"
-          style={sx({
-            display: "grid",
-            gridTemplateColumns: "260px minmax(0, 1fr)",
-            gap: "44px",
-            borderTop: "1px solid rgba(255,255,255,0.06)",
-            paddingTop: "34px",
-          })}
-        >
-          <div>
-            <div style={sx({ fontSize: "12px", letterSpacing: ".18em", textTransform: "uppercase", color: "rgba(255,255,255,0.28)", marginBottom: "12px" })}>
-              analysis stack
-            </div>
-            <div style={sx({ color: "rgba(255,255,255,0.48)", fontSize: "18px", lineHeight: 1.45 })}>
-              Built around the review loop: find the costly move, understand the position, then explore what changed.
-            </div>
-          </div>
-          <div
-            className="landing-stagger"
-            style={sx({
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-              gap: "22px",
-            })}
-          >
-            {landingFeatures.map((feature, index) => (
-              <article
-                key={feature.title}
-                className="landing-feature"
-                style={sx({
-                  "--landing-row-delay": `${index * 90}ms`,
-                  borderTop: "1px solid rgba(255,255,255,0.08)",
-                  paddingTop: "16px",
-                  display: "grid",
-                  gap: "9px",
-                })}
-              >
-                <span style={sx({ color: "rgba(255,255,255,0.28)", fontSize: "10px", letterSpacing: ".16em", textTransform: "uppercase" })}>
-                  {feature.kicker}
-                </span>
-                <h2 style={sx({ margin: 0, color: "#fff", fontSize: "20px", fontWeight: 250 })}>{feature.title}</h2>
-                <p style={sx({ margin: 0, color: "rgba(255,255,255,0.45)", fontSize: "15px", lineHeight: 1.55 })}>{feature.body}</p>
-              </article>
-            ))}
-          </div>
-        </section>
       </main>
     </AppShell>
   );
@@ -8967,6 +9006,7 @@ export default function App() {
         onLogin={() => setView("login")}
         onDashboard={() => setView("dash")}
         onAnalysis={() => setView("sandbox")}
+        onAccount={() => setView("account")}
         onUpgrade={() => setView("upgrade")}
       />
     );
@@ -9226,6 +9266,7 @@ export default function App() {
         onLogin={() => setView("login")}
         onDashboard={() => setView("dash")}
         onAnalysis={() => setView("sandbox")}
+        onAccount={() => setView("account")}
         onUpgrade={() => setView("upgrade")}
       />
     );
