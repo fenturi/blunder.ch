@@ -8,7 +8,8 @@
     "start": "npm run migrate && node src/server.js",
     "worker": "npm run migrate && node src/worker.js",
     "migrate": "node src/scripts/runMigrations.js",
-    "lint": "node --check src/server.js && node --check src/worker.js"
+    "lint": "node --check src/server.js && node --check src/worker.js && node --check src/routes/puzzles.js && node --check src/services/puzzleService.js && node --check src/services/puzzleRatingService.js && node --check src/repositories/puzzlesRepository.js",
+    "test": "node --test --test-isolation=none"
   },
   "engines": {
     "node": ">=20.0.0"

@@ -40,6 +40,9 @@ export function publicUser(user) {
     avatar_preset: user.avatar_preset || "white-knight",
     avatar_data_url: user.avatar_data_url || null,
     profile_slug: user.profile_slug || user.username,
+    puzzle_rating: Number(user.puzzle_rating ?? 1500),
+    puzzle_attempts: Number(user.puzzle_attempts ?? 0),
+    puzzle_solved: Number(user.puzzle_solved ?? 0),
     badges: userBadges(user),
   };
 }

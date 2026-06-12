@@ -12,6 +12,11 @@ devRouter.get("/users", async (_req, res, next) => {
         u.username,
         u.email,
         u.is_premium,
+        u.puzzle_rating,
+        u.puzzle_attempts,
+        u.puzzle_solved,
+        u.puzzle_daily_date,
+        u.puzzle_daily_count,
         u.created_at,
         count(distinct i.id)::int as import_count,
         count(distinct g.id)::int as game_count

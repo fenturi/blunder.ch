@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import bB from "./assets/bB.webp";
 import bK from "./assets/bK.webp";
@@ -253,6 +253,12 @@ function createEmptyAccount() {
     avatarPreset: "white-knight",
     avatarDataUrl: "",
     profileSlug: "",
+    puzzleRating: 1500,
+    puzzleAttempts: 0,
+    puzzleSolved: 0,
+    puzzleDailyLimit: 5,
+    puzzleRemainingToday: 5,
+    puzzleResetsAt: "",
     badges: [],
   };
 }
@@ -306,6 +312,7 @@ function initialViewForAccount(account) {
   if (window.location.pathname.startsWith("/profile/")) return "profile";
   if (window.location.pathname === "/profile-settings" && account.username) return "profile-settings";
   if (window.location.pathname.startsWith("/studies/") && account.username) return "study";
+  if (window.location.pathname === "/puzzles" && account.username) return "puzzles";
   if (window.location.pathname === "/analysis") return "sandbox";
   if (window.location.pathname === "/account") return "account";
   if (window.location.pathname === "/dev") return "dev";
@@ -344,6 +351,7 @@ function pathForView(view, studyId = "", profile = null) {
   if (view === "study" && studyId) return `/studies/${studyId}`;
   if (view === "profile" && profile) return profilePath(profile);
   if (view === "profile-settings") return "/profile-settings";
+  if (view === "puzzles") return "/puzzles";
   if (view === "sandbox") return "/analysis";
   if (view === "account") return "/account";
   if (view === "dev") return "/dev";
@@ -374,6 +382,12 @@ function storedAccountPayload(account) {
     avatarPreset: account.avatarPreset,
     avatarDataUrl: account.avatarDataUrl,
     profileSlug: account.profileSlug,
+    puzzleRating: account.puzzleRating,
+    puzzleAttempts: account.puzzleAttempts,
+    puzzleSolved: account.puzzleSolved,
+    puzzleDailyLimit: account.puzzleDailyLimit,
+    puzzleRemainingToday: account.puzzleRemainingToday,
+    puzzleResetsAt: account.puzzleResetsAt,
     badges: account.badges,
   };
 }
@@ -1235,13 +1249,15 @@ const BOARD_MARK_COLOR = "#f2f2f2";
 const BOARD_MARK_STROKE = 3.2;
 const ANALYSIS_SIDE_PANEL_HEIGHT = "min(620px, calc(100vh - 190px))";
 
-function boardSquareCenter(square) {
+function boardSquareCenter(square, orientation = "white") {
   const indexes = squareIndexes(square);
   if (!indexes) return null;
+  const column = orientation === "black" ? 7 - indexes.column : indexes.column;
+  const row = orientation === "black" ? 7 - indexes.row : indexes.row;
 
   return {
-    x: indexes.column * 12.5 + 6.25,
-    y: indexes.row * 12.5 + 6.25,
+    x: column * 12.5 + 6.25,
+    y: row * 12.5 + 6.25,
   };
 }
 
@@ -1699,6 +1715,7 @@ function Board({
   isMoveBusy = false,
   showMoveBadge = true,
   showCoordinates = true,
+  orientation = "white",
   autoArrows = [],
   autoCircles = [],
 }) {
@@ -1712,13 +1729,18 @@ function Board({
   const previousPositionRef = useRef({ fen, board });
   const [animatedPieces, setAnimatedPieces] = useState(() => createBoardPieces(board, "initial"));
   const animatedPiecesRef = useRef(animatedPieces);
-  const files = ["a", "b", "c", "d", "e", "f", "g", "h"];
-  const ranks = ["8", "7", "6", "5", "4", "3", "2", "1"];
+  const isFlipped = orientation === "black";
   const boardTheme = boardThemeById(readStoredBoardTheme());
   const pieceImages = pieceSetById(readStoredPieceSet()).images;
   const isPendingClassification = isClassificationPending(annotation);
   const displayClassification = visualClassification(annotation);
   const badgeSquare = squareIndexes(inferMoveTargetSquare(annotation));
+  const displayedBadgeSquare = badgeSquare
+    ? {
+        row: isFlipped ? 7 - badgeSquare.row : badgeSquare.row,
+        column: isFlipped ? 7 - badgeSquare.column : badgeSquare.column,
+      }
+    : null;
   const badgeIcon = classificationIcons[displayClassification];
   const badgeSymbol = classificationSymbol(displayClassification);
   const badgeTitle = formatClassification(displayClassification);
@@ -1760,8 +1782,10 @@ function Board({
 
     if (x < 0 || y < 0 || x > rect.width || y > rect.height) return "";
 
-    const column = Math.min(7, Math.max(0, Math.floor((x / rect.width) * 8)));
-    const row = Math.min(7, Math.max(0, Math.floor((y / rect.height) * 8)));
+    const visualColumn = Math.min(7, Math.max(0, Math.floor((x / rect.width) * 8)));
+    const visualRow = Math.min(7, Math.max(0, Math.floor((y / rect.height) * 8)));
+    const column = isFlipped ? 7 - visualColumn : visualColumn;
+    const row = isFlipped ? 7 - visualRow : visualRow;
     return squareName(row, column);
   }
 
@@ -1932,13 +1956,16 @@ function Board({
         transition: "filter 160ms ease, box-shadow 160ms ease",
       })}
     >
-      {board.flatMap((row, rowIndex) =>
-        row.map((_, columnIndex) => {
+      {Array.from({ length: 64 }, (_, index) => {
+          const visualRow = Math.floor(index / 8);
+          const visualColumn = index % 8;
+          const rowIndex = isFlipped ? 7 - visualRow : visualRow;
+          const columnIndex = isFlipped ? 7 - visualColumn : visualColumn;
           const isLight = (rowIndex + columnIndex) % 2 === 0;
 
           return (
             <div
-              key={`${rowIndex}-${columnIndex}`}
+              key={`${visualRow}-${visualColumn}`}
               style={sx({
                 position: "relative",
                 display: "flex",
@@ -1952,7 +1979,7 @@ function Board({
                 userSelect: "none",
               })}
             >
-              {showCoordinates && columnIndex === 0 ? (
+              {showCoordinates && visualColumn === 0 ? (
                 <span
                   style={sx({
                     position: "absolute",
@@ -1963,11 +1990,11 @@ function Board({
                     letterSpacing: ".08em",
                   })}
                 >
-                  {ranks[rowIndex]}
+                  {8 - rowIndex}
                 </span>
               ) : null}
 
-              {showCoordinates && rowIndex === 7 ? (
+              {showCoordinates && visualRow === 7 ? (
                 <span
                   style={sx({
                     position: "absolute",
@@ -1978,13 +2005,12 @@ function Board({
                     letterSpacing: ".08em",
                   })}
                 >
-                  {files[columnIndex]}
+                  {String.fromCharCode(97 + columnIndex)}
                 </span>
               ) : null}
             </div>
           );
-        })
-      )}
+        })}
       {animatedPieces.map((piece) => {
         const pieceImage = pieceImages[piece.piece];
         if (!pieceImage) return null;
@@ -1998,8 +2024,8 @@ function Board({
             key={piece.id}
             className={`chess-board-piece${piece.exiting ? " is-exiting" : ""}${isDragSource ? " is-drag-source" : ""}`}
             style={sx({
-              "--piece-column": String(piece.column),
-              "--piece-row": String(piece.row),
+              "--piece-column": String(isFlipped ? 7 - piece.column : piece.column),
+              "--piece-row": String(isFlipped ? 7 - piece.row : piece.row),
             })}
           >
             <img src={pieceImage} alt={piece.piece} draggable="false" />
@@ -2017,12 +2043,12 @@ function Board({
           <img src={pieceImages[dragMove.piece]} alt="" draggable="false" />
         </div>
       ) : null}
-      {showMoveBadge && badgeSquare ? (
+      {showMoveBadge && displayedBadgeSquare ? (
         <div
           style={sx({
             position: "absolute",
-            left: `${badgeSquare.column * 12.5}%`,
-            top: `${badgeSquare.row * 12.5}%`,
+            left: `${displayedBadgeSquare.column * 12.5}%`,
+            top: `${displayedBadgeSquare.row * 12.5}%`,
             width: "12.5%",
             height: "12.5%",
             pointerEvents: "none",
@@ -2097,7 +2123,7 @@ function Board({
         })}
       >
         {visibleCircles.map((square, index) => {
-          const center = boardSquareCenter(square);
+          const center = boardSquareCenter(square, orientation);
           if (!center) return null;
 
           return (
@@ -2115,8 +2141,8 @@ function Board({
         })}
 
         {visibleArrows.map((arrow, index) => {
-          const from = boardSquareCenter(arrow.from);
-          const to = boardSquareCenter(arrow.to);
+          const from = boardSquareCenter(arrow.from, orientation);
+          const to = boardSquareCenter(arrow.to, orientation);
           if (!from || !to) return null;
 
           const dx = to.x - from.x;
@@ -3928,6 +3954,7 @@ function DashboardWorkspaceNav({
   account,
   onSignUp,
   onLogin,
+  onPuzzles,
   onAccount,
   onImport,
   onSettings,
@@ -3942,6 +3969,7 @@ function DashboardWorkspaceNav({
         {hasAccount ? (
           <>
             <RailAction onClick={onImport} emphasis>import</RailAction>
+            <RailAction onClick={onPuzzles} emphasis>puzzles</RailAction>
             <RailAction onClick={onAccount} emphasis>account</RailAction>
             <RailAction onClick={onSettings}>settings</RailAction>
             {!account.isPremium ? (
@@ -4213,8 +4241,7 @@ function LandingEducationSection() {
         <span className="landing-education-kicker">Built for educators</span>
         <h2>Teach the idea behind the move.</h2>
         <p>
-          Build opening courses, preserve historical games, and annotate the moments students need to understand.
-          Every study stays saved so a lesson can continue after the call ends.
+          All in one hub for puzzles, studies, and game analysis. Create reusable lessons with move-by-move explanations, model games, and interactive variations to show students why critical decisions matter.
         </p>
       </div>
 
@@ -7873,6 +7900,341 @@ function StudyWorkspacePage({ account, studyId, onBack, onDeleted, onStudyLoaded
   );
 }
 
+function formatPuzzleTheme(theme) {
+  return String(theme || "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/_/g, " ")
+    .toLowerCase();
+}
+
+function formatPuzzleTime(milliseconds) {
+  return `${(Math.max(0, Number(milliseconds) || 0) / 1000).toFixed(1)}s`;
+}
+
+function PuzzleDashboardSection({ account, onOpen }) {
+  const accuracy = account.puzzleAttempts
+    ? Math.round((account.puzzleSolved / account.puzzleAttempts) * 100)
+    : 0;
+  const quotaLabel = account.isPremium
+    ? "Unlimited"
+    : `${account.puzzleRemainingToday} / ${account.puzzleDailyLimit} left`;
+  const limitReached = !account.isPremium && account.puzzleRemainingToday <= 0;
+
+  return (
+    <section className="dashboard-puzzles">
+      <div className="dashboard-puzzles-copy">
+        <span>Adaptive training</span>
+        <h2>Puzzles</h2>
+        <p>
+          Solve tactics selected around your current level. Fast correct solves earn a small Elo bonus.
+        </p>
+      </div>
+      <div className="dashboard-puzzles-stats">
+        <div>
+          <span>Elo</span>
+          <strong>{account.puzzleRating}</strong>
+        </div>
+        <div>
+          <span>Solved</span>
+          <strong>{account.puzzleSolved}</strong>
+        </div>
+        <div>
+          <span>Today</span>
+          <strong>{quotaLabel}</strong>
+        </div>
+      </div>
+      <button type="button" onClick={onOpen} disabled={limitReached}>
+        {limitReached ? "daily limit reached" : "train puzzles"}
+      </button>
+      <small className="dashboard-puzzles-accuracy">
+        {account.puzzleAttempts ? `${accuracy}% lifetime accuracy` : "Complete a puzzle to start tracking accuracy"}
+      </small>
+    </section>
+  );
+}
+
+function PuzzlePage({ account, onBack, onProgress }) {
+  const [puzzle, setPuzzle] = useState(null);
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [moveStatus, setMoveStatus] = useState("Find the best move.");
+  const [displayElapsedMs, setDisplayElapsedMs] = useState(0);
+  const timerStartedAtRef = useRef(0);
+
+  const identityParams = useCallback(() => {
+    return {
+      provider: account.platform,
+      username: account.username,
+    };
+  }, [account.platform, account.username]);
+
+  const loadPuzzle = useCallback(async (signal) => {
+    setLoading(true);
+    setBusy(false);
+    setError("");
+    setResult(null);
+    setPuzzle(null);
+    setMoveStatus("Find the best move.");
+    setDisplayElapsedMs(0);
+
+    try {
+      const params = new URLSearchParams(identityParams());
+      const response = await fetch(apiUrl(`/api/puzzles/next?${params.toString()}`), { signal });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        if (payload.details?.quota) onProgress({ quota: payload.details.quota });
+        throw new Error(payload.error || "Unable to load a puzzle.");
+      }
+
+      timerStartedAtRef.current = performance.now();
+      setPuzzle(payload);
+      onProgress(payload.user);
+    } catch (loadError) {
+      if (loadError.name !== "AbortError") {
+        setError(loadError.message || "Unable to load a puzzle.");
+      }
+    } finally {
+      if (!signal?.aborted) setLoading(false);
+    }
+  }, [identityParams, onProgress]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => loadPuzzle(controller.signal), 0);
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [loadPuzzle]);
+
+  useEffect(() => {
+    if (!puzzle?.attemptId || result) return undefined;
+
+    const updateTimer = () => {
+      setDisplayElapsedMs(performance.now() - timerStartedAtRef.current);
+    };
+    updateTimer();
+    const intervalId = window.setInterval(updateTimer, 100);
+    return () => window.clearInterval(intervalId);
+  }, [puzzle?.attemptId, result]);
+
+  function applyFinishedResult(payload) {
+    setResult(payload);
+    setDisplayElapsedMs(payload.elapsedMs);
+    setPuzzle((current) => current ? { ...current, fen: payload.fen || current.fen } : current);
+    setMoveStatus(payload.solved ? "Solved." : "Puzzle complete.");
+    onProgress({
+      rating: payload.ratingAfter,
+      attempts: payload.attempts,
+      solved: payload.solvedCount,
+      quota: payload.quota,
+    });
+  }
+
+  async function sendAttempt(path, extra = {}) {
+    const response = await fetch(apiUrl(`/api/puzzles/${path}`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...identityParams(),
+        attemptId: puzzle.attemptId,
+        ...extra,
+      }),
+    });
+    const payload = await response.json();
+
+    if (!response.ok) throw new Error(payload.error || "Unable to submit this puzzle.");
+    return payload;
+  }
+
+  async function handleMove({ from, to }) {
+    if (!puzzle || result || busy) return;
+
+    let localMove;
+    try {
+      localMove = buildLocalMove(puzzle.fen, { from, to });
+    } catch (moveError) {
+      setMoveStatus(moveError.message || "That move is not legal.");
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    setMoveStatus("Checking move.");
+
+    try {
+      const payload = await sendAttempt("move", { uci: localMove.uci });
+
+      if (payload.finished) {
+        applyFinishedResult(payload);
+        return;
+      }
+
+      setPuzzle((current) => current ? { ...current, fen: localMove.fenAfter } : current);
+      setMoveStatus(payload.opponentMove ? `${payload.opponentMove.san}. Your move.` : "Correct. Keep going.");
+      await new Promise((resolve) => window.setTimeout(resolve, 170));
+      setPuzzle((current) => current ? { ...current, fen: payload.fen } : current);
+    } catch (moveError) {
+      setError(moveError.message || "Unable to submit this move.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revealSolution() {
+    if (!puzzle || result || busy) return;
+
+    setBusy(true);
+    setError("");
+
+    try {
+      const payload = await sendAttempt("reveal");
+      applyFinishedResult(payload);
+    } catch (revealError) {
+      setError(revealError.message || "Unable to reveal this puzzle.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const currentRating = result?.ratingAfter ?? puzzle?.user?.rating ?? account.puzzleRating;
+  const currentQuota = result?.quota ?? puzzle?.user?.quota ?? {
+    dailyLimit: account.puzzleDailyLimit,
+    remainingToday: account.puzzleRemainingToday,
+    resetsAt: account.puzzleResetsAt,
+  };
+  const hasPuzzlesRemaining = account.isPremium || currentQuota.remainingToday > 0;
+
+  return (
+    <AppShell
+      view="puzzles"
+      onHome={onBack}
+      headerActions={(
+        <button type="button" onClick={onBack}>dashboard</button>
+      )}
+    >
+      <main className="puzzle-page">
+        <header className="puzzle-page-heading">
+          <div>
+            <span>Adaptive tactics</span>
+            <h1>Puzzles</h1>
+            <p>Your Elo is private and only tunes the difficulty of the next position.</p>
+          </div>
+          <div className="puzzle-current-rating">
+            <span>Your Elo</span>
+            <strong>{currentRating}</strong>
+            <small>
+              {account.isPremium
+                ? "Unlimited puzzles"
+                : `${currentQuota.remainingToday} of ${currentQuota.dailyLimit} left today`}
+            </small>
+          </div>
+        </header>
+
+        {loading ? (
+          <section className="puzzle-loading">Finding a puzzle near Elo {account.puzzleRating}.</section>
+        ) : error && !puzzle ? (
+          <section className="puzzle-loading is-error">
+            <span>{error}</span>
+            <button type="button" onClick={() => loadPuzzle()}>try again</button>
+          </section>
+        ) : puzzle ? (
+          <div className="puzzle-layout">
+            <section className="puzzle-board-panel">
+              <div className="puzzle-board-meta">
+                <span>{puzzle.orientation} to move</span>
+                <span>Puzzle Elo {puzzle.puzzleRating}</span>
+              </div>
+              <div className="puzzle-board-wrap">
+                <Board
+                  fen={puzzle.fen}
+                  maxWidth="720px"
+                  interactive={!result}
+                  onMove={result ? null : handleMove}
+                  isMoveBusy={busy}
+                  showMoveBadge={false}
+                  orientation={puzzle.orientation}
+                />
+              </div>
+            </section>
+
+            <aside className="puzzle-side-panel">
+              <div className="puzzle-timer">
+                <span>Time</span>
+                <strong>{formatPuzzleTime(displayElapsedMs)}</strong>
+              </div>
+
+              {result ? (
+                <div className={`puzzle-result ${result.solved ? "is-solved" : "is-failed"}`}>
+                  <span>{result.solved ? "Solved" : "Not solved"}</span>
+                  <strong>
+                    {result.ratingDelta >= 0 ? "+" : ""}{result.ratingDelta} Elo
+                  </strong>
+                  <p>
+                    {result.solved && result.speedBonus > 0
+                      ? `Fast solve bonus: +${Math.round(result.speedBonus * 100)}% on the gain.`
+                      : result.solved
+                        ? "Correct solution."
+                        : "Review the line and try the next position."}
+                  </p>
+                </div>
+              ) : (
+                <div className="puzzle-instructions">
+                  <span>Position</span>
+                  <strong>{moveStatus}</strong>
+                  <p>Play the full best line. The opponent replies automatically.</p>
+                </div>
+              )}
+
+              <div className="puzzle-themes">
+                <span>Themes</span>
+                <div>
+                  {(puzzle.themes || []).map((theme) => (
+                    <small key={theme}>{formatPuzzleTheme(theme)}</small>
+                  ))}
+                </div>
+              </div>
+
+              {result ? (
+                <div className="puzzle-solution">
+                  <span>Solution</span>
+                  <strong>{result.solution.map((move) => move.san).join(" ")}</strong>
+                  <small>{result.solution.map((move) => move.uci).join(" ")}</small>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="puzzle-secondary-action"
+                  onClick={revealSolution}
+                  disabled={busy}
+                >
+                  reveal solution
+                </button>
+              )}
+
+              {error ? <div className="puzzle-error">{error}</div> : null}
+
+              {result ? (
+                <button
+                  type="button"
+                  className="puzzle-next-action"
+                  onClick={() => loadPuzzle()}
+                  disabled={loading || !hasPuzzlesRemaining}
+                >
+                  {hasPuzzlesRemaining ? "next puzzle" : "daily limit reached"}
+                </button>
+              ) : null}
+            </aside>
+          </div>
+        ) : null}
+      </main>
+    </AppShell>
+  );
+}
+
 function StudiesDashboardSection({
   account,
   studies,
@@ -8555,6 +8917,20 @@ export default function App() {
     return account.username ? "dash" : "landing";
   }
 
+  const handlePuzzleProgress = useCallback((progress) => {
+    if (!progress) return;
+
+    setAccount((current) => ({
+      ...current,
+      puzzleRating: progress.rating ?? current.puzzleRating,
+      puzzleAttempts: progress.attempts ?? current.puzzleAttempts,
+      puzzleSolved: progress.solved ?? current.puzzleSolved,
+      puzzleDailyLimit: progress.quota?.dailyLimit ?? current.puzzleDailyLimit,
+      puzzleRemainingToday: progress.quota?.remainingToday ?? current.puzzleRemainingToday,
+      puzzleResetsAt: progress.quota?.resetsAt ?? current.puzzleResetsAt,
+    }));
+  }, []);
+
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
     if (!account.username || !account.platform) return undefined;
@@ -8792,6 +9168,45 @@ export default function App() {
     return () => {
       isActive = false;
       window.clearInterval(intervalId);
+    };
+  }, [view, account.username, account.platform]);
+
+  useEffect(() => {
+    if (!["dash", "puzzles"].includes(view) || !account.username || !account.platform) {
+      return undefined;
+    }
+
+    let isActive = true;
+
+    async function loadPuzzleProgress() {
+      try {
+        const params = new URLSearchParams({
+          provider: account.platform,
+          username: account.username,
+        });
+        const response = await fetch(apiUrl(`/api/puzzles/status?${params.toString()}`));
+        const payload = await response.json();
+
+        if (!response.ok || !isActive) return;
+
+        setAccount((current) => ({
+          ...current,
+          puzzleRating: payload.rating,
+          puzzleAttempts: payload.attempts,
+          puzzleSolved: payload.solved,
+          puzzleDailyLimit: payload.quota?.dailyLimit ?? current.puzzleDailyLimit,
+          puzzleRemainingToday: payload.quota?.remainingToday ?? current.puzzleRemainingToday,
+          puzzleResetsAt: payload.quota?.resetsAt ?? current.puzzleResetsAt,
+        }));
+      } catch {
+        // Puzzle progress is non-critical to the rest of the dashboard.
+      }
+    }
+
+    loadPuzzleProgress();
+
+    return () => {
+      isActive = false;
     };
   }, [view, account.username, account.platform]);
 
@@ -9056,6 +9471,9 @@ export default function App() {
             avatarPreset: user.avatar_preset || "white-knight",
             avatarDataUrl: user.avatar_data_url || "",
             profileSlug: user.profile_slug || user.username,
+            puzzleRating: user.puzzle_rating ?? 1500,
+            puzzleAttempts: user.puzzle_attempts ?? 0,
+            puzzleSolved: user.puzzle_solved ?? 0,
             badges: user.badges || [],
           };
 
@@ -9106,6 +9524,9 @@ export default function App() {
             avatarPreset: user.avatar_preset || "white-knight",
             avatarDataUrl: user.avatar_data_url || "",
             profileSlug: user.profile_slug || user.username,
+            puzzleRating: user.puzzle_rating ?? 1500,
+            puzzleAttempts: user.puzzle_attempts ?? 0,
+            puzzleSolved: user.puzzle_solved ?? 0,
             badges: user.badges || [],
           });
           setCollapsedSections(createCollapsedSections());
@@ -9157,6 +9578,16 @@ export default function App() {
         pieceSetId={pieceSetId}
         onPieceSetChange={handlePieceSetChange}
         onBack={() => setView(homeView())}
+      />
+    );
+  }
+
+  if (view === "puzzles" && account.username) {
+    return (
+      <PuzzlePage
+        account={account}
+        onBack={() => setView("dash")}
+        onProgress={handlePuzzleProgress}
       />
     );
   }
@@ -9292,6 +9723,7 @@ export default function App() {
           account={account}
           onSignUp={() => setView("signup")}
           onLogin={() => setView("login")}
+          onPuzzles={() => setView("puzzles")}
           onAccount={() => setView("account")}
           onImport={() => setView("import")}
           onSettings={() => setView("settings")}
@@ -9372,6 +9804,11 @@ export default function App() {
             <RailMetric label="Queue active" value={queuedGames + runningGames} />
             <RailMetric label="Listed games" value={issueCount} />
           </div>
+
+          <PuzzleDashboardSection
+            account={account}
+            onOpen={() => setView("puzzles")}
+          />
 
           <StudiesDashboardSection
             account={account}
