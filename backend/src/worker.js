@@ -1,5 +1,6 @@
 import { Worker } from "bullmq";
 import { config } from "./config.js";
+import { runMigrations } from "./migrations.js";
 import { queueNames } from "./queue.js";
 import { redis } from "./redis.js";
 import { analyzeGame } from "./services/analysisService.js";
@@ -7,6 +8,8 @@ import { importGamesForUser } from "./services/gameImportService.js";
 import { setImportStatus } from "./repositories/importsRepository.js";
 import { logError, logInfo } from "./utils/logger.js";
 import { markGameAnalysis } from "./repositories/gamesRepository.js";
+
+await runMigrations();
 
 const importWorker = new Worker(
   queueNames.imports,
