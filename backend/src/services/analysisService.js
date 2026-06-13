@@ -2,6 +2,7 @@ import { Chess } from "chess.js";
 import { pool } from "../db.js";
 import { replaceAnnotationsForGame } from "../repositories/annotationsRepository.js";
 import { markGameAnalysis } from "../repositories/gamesRepository.js";
+import { createNotification } from "../repositories/notificationsRepository.js";
 import { createStockfishSession } from "./stockfishService.js";
 import { getLichessBookClassification } from "./openingExplorerService.js";
 import { logInfo } from "../utils/logger.js";
@@ -216,11 +217,28 @@ export async function analyzeGame(gameId) {
   }
 
   await replaceAnnotationsForGame(gameId, annotations);
-  await markGameAnalysis(gameId, {
+  const completedAt = new Date();
+  const completedGame = await markGameAnalysis(gameId, {
     status: "completed",
-    completedAt: new Date(),
+    completedAt,
     error: null,
   });
+
+  try {
+    await createNotification({
+      userId: completedGame.user_id,
+      type: "analysis_complete",
+      title: "Analysis complete",
+      body: `${completedGame.white_player || "White"} vs ${completedGame.black_player || "Black"} is ready to review.`,
+      href: `/games/${completedGame.id}`,
+      entityKey: `${completedGame.id}:${completedAt.toISOString()}`,
+    });
+  } catch (error) {
+    logInfo("analysis-notification-failed", {
+      gameId,
+      reason: error.message,
+    });
+  }
 
   return annotations;
 }

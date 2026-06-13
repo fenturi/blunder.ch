@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import bB from "./assets/bB.webp";
 import bK from "./assets/bK.webp";
@@ -43,6 +44,8 @@ const DISCORD_INVITE_URL = "https://discord.gg/cgDt8EksRc";
 const LANDING_NAVIGATION_EVENT = "blunder:navigate-landing";
 const UPGRADE_NAVIGATION_EVENT = "blunder:navigate-upgrade";
 const PROFILE_SETTINGS_NAVIGATION_EVENT = "blunder:navigate-profile-settings";
+const INBOX_NAVIGATION_EVENT = "blunder:navigate-inbox";
+const NOTIFICATIONS_UPDATED_EVENT = "blunder:notifications-updated";
 const ACCOUNT_UPDATED_EVENT = "blunder:account-updated";
 const phases = ["Opening", "Middlegame", "Endgame"];
 const moveClassifications = ["book", "only", "best", "good", "inaccuracy", "mistake", "blunder", "miss"];
@@ -311,7 +314,9 @@ function initialViewForAccount(account) {
 
   if (window.location.pathname.startsWith("/profile/")) return "profile";
   if (window.location.pathname === "/profile-settings" && account.username) return "profile-settings";
+  if (window.location.pathname.startsWith("/games/") && account.username) return "analysis";
   if (window.location.pathname.startsWith("/studies/") && account.username) return "study";
+  if (window.location.pathname === "/inbox" && account.username) return "inbox";
   if (window.location.pathname === "/puzzles" && account.username) return "puzzles";
   if (window.location.pathname === "/analysis") return "sandbox";
   if (window.location.pathname === "/account") return "account";
@@ -326,6 +331,13 @@ function initialStudyIdFromLocation() {
   if (typeof window === "undefined") return "";
 
   const match = window.location.pathname.match(/^\/studies\/([^/]+)/);
+  return match?.[1] || "";
+}
+
+function initialGameIdFromLocation() {
+  if (typeof window === "undefined") return "";
+
+  const match = window.location.pathname.match(/^\/games\/([^/]+)/);
   return match?.[1] || "";
 }
 
@@ -347,10 +359,12 @@ function profilePath(profile) {
   return slug ? `/profile/${encodeURIComponent(slug)}` : "/";
 }
 
-function pathForView(view, studyId = "", profile = null) {
+function pathForView(view, studyId = "", profile = null, gameId = "") {
   if (view === "study" && studyId) return `/studies/${studyId}`;
+  if (view === "analysis" && gameId) return `/games/${gameId}`;
   if (view === "profile" && profile) return profilePath(profile);
   if (view === "profile-settings") return "/profile-settings";
+  if (view === "inbox") return "/inbox";
   if (view === "puzzles") return "/puzzles";
   if (view === "sandbox") return "/analysis";
   if (view === "account") return "/account";
@@ -936,8 +950,8 @@ async function evaluateFenWithCloudStockfish(fen) {
   return payload.lines?.[0] || { evaluation: 0, mate: null, depth: 0, pv: [] };
 }
 
-async function getOpeningBookClassification({ fen, playedUci, moveNumber }) {
-  if (!fen || !playedUci || moveNumber > 12) return null;
+async function getOpeningBookClassification({ fen, playedUci, moveNumber, maxMoveNumber = 12 }) {
+  if (!fen || !playedUci || moveNumber > maxMoveNumber) return null;
 
   try {
     const params = new URLSearchParams({
@@ -965,11 +979,48 @@ async function getOpeningBookClassification({ fen, playedUci, moveNumber }) {
       evaluationAfter: 0,
       depth: 0,
       bookMove: matchingMove,
+      opening: payload.opening || null,
       classifiedAt: new Date().toISOString(),
     };
   } catch {
     return null;
   }
+}
+
+async function checkStudyMoveInOpeningDatabase({ fen, playedUci }) {
+  const params = new URLSearchParams({
+    fen,
+    source: "masters",
+    limit: "1",
+    moves: "24",
+  });
+  const response = await fetch(apiUrl(`/api/openings/explorer?${params.toString()}`));
+  const payload = await readJsonResponse(response);
+  if (!response.ok) throw new Error(payload.error || "opening database unavailable");
+
+  const bookMoves = (payload.moves || []).filter((move) => move.uci);
+  const positionTotal = Number(payload.totals?.white || 0)
+    + Number(payload.totals?.draws || 0)
+    + Number(payload.totals?.black || 0);
+  if (positionTotal < 20) return null;
+
+  const establishedMoves = bookMoves.filter((move) => (
+    Number(move.total || 0) >= 5
+    && Number(move.total || 0) / positionTotal >= 0.05
+  ));
+  const matchingMove = establishedMoves.find((move) => (
+    move.uci.toLowerCase() === String(playedUci || "").toLowerCase()
+  ));
+  if (!matchingMove) return null;
+
+  return {
+    classification: establishedMoves.length === 1 ? "only" : "book",
+    bookMove: matchingMove,
+    opening: payload.opening || null,
+    classificationSource: "masters",
+    bookPolicyVersion: 2,
+    classifiedAt: new Date().toISOString(),
+  };
 }
 
 async function classifyMoveWithCloudStockfish(move) {
@@ -1718,6 +1769,9 @@ function Board({
   orientation = "white",
   autoArrows = [],
   autoCircles = [],
+  persistedArrows = null,
+  persistedCircles = null,
+  onAnnotationsChange = null,
 }) {
   const boardRef = useRef(null);
   const [circleMarks, setCircleMarks] = useState([]);
@@ -1744,6 +1798,8 @@ function Board({
   const badgeIcon = classificationIcons[displayClassification];
   const badgeSymbol = classificationSymbol(displayClassification);
   const badgeTitle = formatClassification(displayClassification);
+  const manualCircles = Array.isArray(persistedCircles) ? persistedCircles : circleMarks;
+  const manualArrows = Array.isArray(persistedArrows) ? persistedArrows : arrowMarks;
 
   useLayoutEffect(() => {
     const previousPosition = previousPositionRef.current;
@@ -1800,20 +1856,28 @@ function Board({
   }
 
   function toggleCircleMark(square) {
-    setCircleMarks((current) => (
-      current.includes(square)
-        ? current.filter((mark) => mark !== square)
-        : [...current, square]
-    ));
+    const nextCircles = manualCircles.includes(square)
+      ? manualCircles.filter((mark) => mark !== square)
+      : [...manualCircles, square];
+
+    if (Array.isArray(persistedCircles)) {
+      onAnnotationsChange?.({ circles: nextCircles, arrows: manualArrows });
+    } else {
+      setCircleMarks(nextCircles);
+    }
   }
 
   function toggleArrowMark(from, to) {
-    setArrowMarks((current) => {
-      const exists = current.some((mark) => mark.from === from && mark.to === to);
-      return exists
-        ? current.filter((mark) => mark.from !== from || mark.to !== to)
-        : [...current, { from, to }];
-    });
+    const exists = manualArrows.some((mark) => mark.from === from && mark.to === to);
+    const nextArrows = exists
+      ? manualArrows.filter((mark) => mark.from !== from || mark.to !== to)
+      : [...manualArrows, { from, to }];
+
+    if (Array.isArray(persistedArrows)) {
+      onAnnotationsChange?.({ circles: manualCircles, arrows: nextArrows });
+    } else {
+      setArrowMarks(nextArrows);
+    }
   }
 
   function handleBoardPointerDown(event) {
@@ -1826,8 +1890,8 @@ function Board({
       if (onMove && !isMoveBusy && piece) {
         event.preventDefault();
         event.currentTarget.setPointerCapture?.(event.pointerId);
-        setArrowMarks([]);
-        setCircleMarks([]);
+        if (!Array.isArray(persistedArrows)) setArrowMarks([]);
+        if (!Array.isArray(persistedCircles)) setCircleMarks([]);
         setMarkStart(null);
         setDraftArrow(null);
         setDragMove({
@@ -1839,8 +1903,8 @@ function Board({
         return;
       }
 
-      setArrowMarks([]);
-      setCircleMarks([]);
+      if (!Array.isArray(persistedArrows)) setArrowMarks([]);
+      if (!Array.isArray(persistedCircles)) setCircleMarks([]);
       setMarkStart(null);
       setDraftArrow(null);
       return;
@@ -1921,10 +1985,10 @@ function Board({
     if (interactive) event.preventDefault();
   }
 
-  const visibleCircles = [...autoCircles, ...circleMarks];
+  const visibleCircles = [...autoCircles, ...manualCircles];
   const visibleArrows = [
     ...autoArrows,
-    ...arrowMarks,
+    ...manualArrows,
     ...(draftArrow ? [draftArrow] : []),
   ];
 
@@ -3742,6 +3806,68 @@ function Nav({ view, onBack }) {
   );
 }
 
+function notificationAccountParams(account) {
+  return new URLSearchParams({
+    provider: account.platform,
+    username: account.username,
+  });
+}
+
+function NotificationBell({ account, active = false }) {
+  const [unreadCount, setUnreadCount] = useState(0);
+  const provider = account.platform;
+  const username = account.username;
+
+  const refreshUnreadCount = useCallback(async () => {
+    if (!username || !provider) {
+      setUnreadCount(0);
+      return;
+    }
+
+    try {
+      const params = notificationAccountParams({ platform: provider, username });
+      const response = await fetch(apiUrl(`/api/notifications/unread-count?${params.toString()}`));
+      const payload = await response.json();
+
+      if (response.ok) {
+        setUnreadCount(Number(payload.unreadCount) || 0);
+      }
+    } catch {
+      // Notifications should never block the rest of the shell.
+    }
+  }, [provider, username]);
+
+  useEffect(() => {
+    const initialId = window.setTimeout(refreshUnreadCount, 0);
+    const intervalId = window.setInterval(refreshUnreadCount, 20_000);
+    window.addEventListener(NOTIFICATIONS_UPDATED_EVENT, refreshUnreadCount);
+
+    return () => {
+      window.clearTimeout(initialId);
+      window.clearInterval(intervalId);
+      window.removeEventListener(NOTIFICATIONS_UPDATED_EVENT, refreshUnreadCount);
+    };
+  }, [refreshUnreadCount]);
+
+  return (
+    <button
+      type="button"
+      className={`notification-bell${active ? " is-active" : ""}`}
+      onClick={() => window.dispatchEvent(new CustomEvent(INBOX_NAVIGATION_EVENT))}
+      title={unreadCount ? `${unreadCount} unread notifications` : "Open inbox"}
+      aria-label={unreadCount ? `Open inbox, ${unreadCount} unread notifications` : "Open inbox"}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z" />
+        <path d="M10 21h4" />
+      </svg>
+      {unreadCount > 0 ? (
+        <span className="notification-badge">{unreadCount > 99 ? "99+" : unreadCount}</span>
+      ) : null}
+    </button>
+  );
+}
+
 function AppShell({
   view,
   children,
@@ -3824,6 +3950,9 @@ function AppShell({
             />
           ) : null}
           {headerActions}
+          {shellAccount.username ? (
+            <NotificationBell account={shellAccount} active={view === "inbox"} />
+          ) : null}
           {shellAccount.username && view !== "profile-settings" && view !== "landing" ? (
             <button
               type="button"
@@ -3884,6 +4013,208 @@ function AppShell({
 
       {import.meta.env.DEV ? <DevPanel /> : null}
     </div>
+  );
+}
+
+function formatInboxCountdown(availableAt, now) {
+  const remaining = Math.max(0, new Date(availableAt).getTime() - now);
+
+  if (remaining <= 0) return "ready now";
+
+  const totalMinutes = Math.ceil(remaining / 60_000);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function notificationTypeLabel(type) {
+  if (type === "analysis_complete") return "game analysis";
+  if (type === "puzzle_restock") return "puzzles";
+  if (type === "analysis_restock") return "analysis allowance";
+  return "notification";
+}
+
+function InboxPage({ account, onBack, onOpen }) {
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [status, setStatus] = useState("loading");
+  const [error, setError] = useState("");
+  const [now, setNow] = useState(0);
+  const provider = account.platform;
+  const username = account.username;
+
+  const loadNotifications = useCallback(async () => {
+    try {
+      setError("");
+      const params = notificationAccountParams({ platform: provider, username });
+      const response = await fetch(apiUrl(`/api/notifications?${params.toString()}`));
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error || "unable to load inbox");
+      }
+
+      setNotifications(payload.notifications || []);
+      setUnreadCount(Number(payload.unreadCount) || 0);
+      setNow(new Date(payload.serverTime).getTime());
+      setStatus("ready");
+      window.dispatchEvent(new CustomEvent(NOTIFICATIONS_UPDATED_EVENT));
+    } catch (loadError) {
+      setError(loadError.message || "unable to load inbox");
+      setStatus("error");
+    }
+  }, [provider, username]);
+
+  useEffect(() => {
+    const initialId = window.setTimeout(loadNotifications, 0);
+    const refreshId = window.setInterval(loadNotifications, 30_000);
+    const clockId = window.setInterval(() => setNow((current) => current + 30_000), 30_000);
+
+    return () => {
+      window.clearTimeout(initialId);
+      window.clearInterval(refreshId);
+      window.clearInterval(clockId);
+    };
+  }, [loadNotifications]);
+
+  async function markRead(notification) {
+    const available = new Date(notification.available_at).getTime() <= now;
+    if (!available || notification.read_at) return;
+
+    try {
+      const response = await fetch(apiUrl(`/api/notifications/${notification.id}/read`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: account.platform,
+          username: account.username,
+        }),
+      });
+
+      if (!response.ok) return;
+
+      const readAt = new Date().toISOString();
+      setNotifications((current) => current.map((item) => (
+        item.id === notification.id ? { ...item, read_at: readAt } : item
+      )));
+      setUnreadCount((current) => Math.max(0, current - 1));
+      window.dispatchEvent(new CustomEvent(NOTIFICATIONS_UPDATED_EVENT));
+    } catch {
+      // The destination can still open if the read receipt fails.
+    }
+  }
+
+  async function handleOpen(notification) {
+    await markRead(notification);
+    onOpen(notification);
+  }
+
+  async function markAllRead() {
+    try {
+      const response = await fetch(apiUrl("/api/notifications/read-all"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: account.platform,
+          username: account.username,
+        }),
+      });
+
+      if (!response.ok) return;
+
+      const readAt = new Date().toISOString();
+      setNotifications((current) => current.map((notification) => (
+        new Date(notification.available_at).getTime() <= now
+          ? { ...notification, read_at: notification.read_at || readAt }
+          : notification
+      )));
+      setUnreadCount(0);
+      window.dispatchEvent(new CustomEvent(NOTIFICATIONS_UPDATED_EVENT));
+    } catch {
+      // Leave the current unread state intact and allow another attempt.
+    }
+  }
+
+  return (
+    <AppShell
+      view="inbox"
+      onHome={onBack}
+      headerActions={(
+        <button type="button" className="inbox-back-button" onClick={onBack}>
+          dashboard
+        </button>
+      )}
+    >
+      <main className="inbox-page">
+        <header className="inbox-heading">
+          <div>
+            <span>notifications</span>
+            <h1>Inbox</h1>
+            <p>Analysis results and refill timers, all in one place.</p>
+          </div>
+          <button type="button" onClick={markAllRead} disabled={unreadCount === 0}>
+            mark all read
+          </button>
+        </header>
+
+        {status === "loading" ? (
+          <div className="inbox-empty">loading notifications</div>
+        ) : null}
+
+        {error ? (
+          <div className="inbox-empty is-error">
+            <span>{error}</span>
+            <button type="button" onClick={loadNotifications}>try again</button>
+          </div>
+        ) : null}
+
+        {status === "ready" && notifications.length === 0 ? (
+          <div className="inbox-empty">
+            <strong>Your inbox is clear.</strong>
+            <span>Finished analyses and refill alerts will appear here.</span>
+          </div>
+        ) : null}
+
+        {status === "ready" && notifications.length > 0 ? (
+          <section className="inbox-list" aria-label="Notifications">
+            {notifications.map((notification) => {
+              const available = new Date(notification.available_at).getTime() <= now;
+              const unread = available && !notification.read_at;
+
+              return (
+                <button
+                  type="button"
+                  key={notification.id}
+                  className={`inbox-item${unread ? " is-unread" : ""}${available ? "" : " is-scheduled"}`}
+                  onClick={() => handleOpen(notification)}
+                >
+                  <span className="inbox-item-marker" aria-hidden="true" />
+                  <span className="inbox-item-copy">
+                    <span className="inbox-item-meta">
+                      <span>{notificationTypeLabel(notification.type)}</span>
+                      <span>
+                        {available
+                          ? new Date(notification.available_at).toLocaleString()
+                          : `ready in ${formatInboxCountdown(notification.available_at, now)}`}
+                      </span>
+                    </span>
+                    <strong>{notification.title}</strong>
+                    <span>{notification.body}</span>
+                  </span>
+                  <span className="inbox-item-action">
+                    {available ? "open" : formatInboxCountdown(notification.available_at, now)}
+                  </span>
+                </button>
+              );
+            })}
+          </section>
+        ) : null}
+      </main>
+    </AppShell>
   );
 }
 
@@ -7073,6 +7404,347 @@ function StandaloneMoveList({ annotations, activePly, onSelectPly }) {
   );
 }
 
+function normalizeStudyMovesClient(value) {
+  const source = Array.isArray(value) ? value : [];
+  let previousId = null;
+
+  return source.map((move, index) => {
+    const id = move.id || `legacy-${index}-${String(move.uci || move.san || "move").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+    const normalized = {
+      ...move,
+      id,
+      parentId: Object.hasOwn(move, "parentId") ? move.parentId || null : previousId,
+      order: Number.isFinite(Number(move.order)) ? Number(move.order) : index,
+      comment: move.comment || "",
+      commentAuthor: move.commentAuthor || null,
+      commentUpdatedAt: move.commentUpdatedAt || null,
+      nags: Array.isArray(move.nags) ? move.nags : [],
+      annotations: {
+        arrows: Array.isArray(move.annotations?.arrows) ? move.annotations.arrows : [],
+        circles: Array.isArray(move.annotations?.circles) ? move.annotations.circles : [],
+      },
+    };
+    previousId = id;
+    return normalized;
+  });
+}
+
+function studyMoveChildren(moves, parentId) {
+  return moves
+    .filter((move) => (move.parentId || null) === (parentId || null))
+    .sort((left, right) => Number(left.order || 0) - Number(right.order || 0));
+}
+
+function studyMovePath(moves, moveId) {
+  const byId = new Map(moves.map((move) => [move.id, move]));
+  const path = [];
+  let cursor = moveId ? byId.get(moveId) : null;
+  const visited = new Set();
+
+  while (cursor && !visited.has(cursor.id)) {
+    visited.add(cursor.id);
+    path.unshift(cursor);
+    cursor = cursor.parentId ? byId.get(cursor.parentId) : null;
+  }
+
+  return path;
+}
+
+function latestStudyMainlineMove(moves) {
+  let parentId = null;
+  let latest = null;
+
+  while (true) {
+    const child = studyMoveChildren(moves, parentId)[0];
+    if (!child) return latest;
+    latest = child;
+    parentId = child.id;
+  }
+}
+
+function studyMovePly(moves, moveId, basePly) {
+  return basePly + studyMovePath(moves, moveId).length;
+}
+
+function localAnnotationFromStudyMove(move, moves, basePly) {
+  const ply = studyMovePly(moves, move.id, basePly);
+  return {
+    ...localAnnotationFromMove(move, ply - 1, 0),
+    ply,
+    move_index: Math.ceil(ply / 2),
+  };
+}
+
+function StudyMoveCommentCard({ move, canEdit, editing, onUpdate, onClose }) {
+  const [comment, setComment] = useState(move.comment || "");
+
+  async function saveComment() {
+    await onUpdate(move.id, { comment: comment.trim() });
+    onClose();
+  }
+
+  const authorName = move.commentAuthor?.username || "Study collaborator";
+  const authorProvider = move.commentAuthor?.provider || "";
+
+  return (
+    <section className="study-panel study-move-comment-card">
+      {editing ? (
+        <>
+          <textarea
+            autoFocus
+            value={comment}
+            disabled={!canEdit}
+            placeholder="Add a comment for this move..."
+            rows={3}
+            onChange={(event) => setComment(event.target.value)}
+          />
+          <div className="study-move-editor-actions">
+            <button type="button" onClick={onClose}>cancel</button>
+            <button type="button" className="is-primary" onClick={saveComment}>save comment</button>
+          </div>
+        </>
+      ) : (
+        <div className="study-comment-display">
+          <div className="study-comment-author">
+            <strong>{authorName}</strong>
+            {authorProvider ? <span>{authorProvider}</span> : null}
+          </div>
+          <p>{move.comment}</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function StudyMoveCell({
+  move,
+  moves,
+  basePly,
+  selectedMoveId,
+  canEdit,
+  contextMenu,
+  onSelect,
+  onOpenContext,
+  onComment,
+  onDelete,
+}) {
+  if (!move) return <span className="study-move-cell-placeholder" />;
+
+  const annotation = localAnnotationFromStudyMove(move, moves, basePly);
+  const isSelected = move.id === selectedMoveId;
+
+  return (
+    <div className="study-move-cell-wrap">
+      <button
+        type="button"
+        className={`study-move-cell${isSelected ? " is-active" : ""}`}
+        onClick={() => onSelect(move.id)}
+        onContextMenu={(event) => {
+          if (!canEdit) return;
+          event.preventDefault();
+          onOpenContext(move.id, event);
+        }}
+        title={canEdit ? `${move.san || move.uci} · right-click for actions` : move.san || move.uci}
+      >
+        <span className="analysis-move-san">{move.san || move.uci}</span>
+        {move.comment ? <i aria-label="Has comment" title="Has comment" /> : null}
+        <span className="analysis-move-meta">
+          {move.classificationStatus === "checking" ? <ClassificationSpinner size="12px" /> : null}
+          {move.classification && move.classification !== "analysis" ? (
+            <MoveClassificationBadge annotation={annotation} />
+          ) : null}
+        </span>
+      </button>
+      {contextMenu?.moveId === move.id && typeof document !== "undefined"
+        ? createPortal(
+          <div
+            className="study-move-context-menu"
+            role="menu"
+            style={sx({
+              left: `${contextMenu.x}px`,
+              top: `${contextMenu.y}px`,
+            })}
+          >
+            <button type="button" role="menuitem" onClick={() => onComment(move.id)}>comment</button>
+            <button type="button" role="menuitem" className="is-danger" onClick={() => onDelete(move.id)}>delete</button>
+          </div>,
+          document.body
+        )
+        : null}
+    </div>
+  );
+}
+
+function StudyMoveTree({
+  moves,
+  basePly,
+  selectedMoveId,
+  canEdit,
+  onSelect,
+  onComment,
+  onDelete,
+}) {
+  const [contextMenu, setContextMenu] = useState(null);
+
+  useEffect(() => {
+    if (!contextMenu) return undefined;
+
+    function closeMenu(event) {
+      if (event.target.closest?.(".study-move-context-menu")) return;
+      setContextMenu(null);
+    }
+
+    function closeOnEscape(event) {
+      if (event.key === "Escape") setContextMenu(null);
+    }
+
+    function closeOnViewportChange() {
+      setContextMenu(null);
+    }
+
+    document.addEventListener("pointerdown", closeMenu);
+    document.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("resize", closeOnViewportChange);
+    window.addEventListener("scroll", closeOnViewportChange, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeMenu);
+      document.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("resize", closeOnViewportChange);
+      window.removeEventListener("scroll", closeOnViewportChange, true);
+    };
+  }, [contextMenu]);
+
+  function openContext(moveId, event) {
+    const menuWidth = 150;
+    const menuHeight = 42;
+    const viewportPadding = 8;
+    const x = Math.max(
+      viewportPadding,
+      Math.min(event.clientX, window.innerWidth - menuWidth - viewportPadding)
+    );
+    const preferredY = event.clientY + 5;
+    const y = preferredY + menuHeight <= window.innerHeight - viewportPadding
+      ? preferredY
+      : Math.max(viewportPadding, event.clientY - menuHeight - 5);
+
+    onSelect(moveId);
+    setContextMenu({ moveId, x, y });
+  }
+
+  function chooseComment(moveId) {
+    setContextMenu(null);
+    onComment(moveId);
+  }
+
+  function chooseDelete(moveId) {
+    setContextMenu(null);
+    onDelete(moveId);
+  }
+
+  function mainlineFrom(startMove) {
+    const line = [];
+    let cursor = startMove;
+
+    while (cursor) {
+      line.push(cursor);
+      cursor = studyMoveChildren(moves, cursor.id)[0] || null;
+    }
+
+    return line;
+  }
+
+  function pairLine(line) {
+    const rows = [];
+
+    for (const move of line) {
+      const ply = studyMovePly(moves, move.id, basePly);
+      const moveIndex = Math.ceil(ply / 2);
+      let row = rows.at(-1);
+
+      if (!row || row.moveIndex !== moveIndex) {
+        row = { moveIndex, white: null, black: null, moves: [] };
+        rows.push(row);
+      }
+
+      if (ply % 2 === 1) row.white = move;
+      else row.black = move;
+      row.moves.push(move);
+    }
+
+    return rows;
+  }
+
+  function renderLine(startMove, variationDepth = 0) {
+    const line = mainlineFrom(startMove);
+    if (!line.length) return null;
+
+    return (
+      <div
+        className={variationDepth ? "study-paired-line is-variation" : "study-paired-line"}
+        style={sx({ "--study-variation-depth": variationDepth })}
+      >
+        {pairLine(line).map((row) => {
+          const childVariations = row.moves.flatMap((move) => studyMoveChildren(moves, move.id).slice(1));
+
+          return (
+            <Fragment key={`${variationDepth}-${row.moveIndex}-${row.moves.map((move) => move.id).join("-")}`}>
+              <div className="study-move-row">
+                <span className="study-move-number">{row.moveIndex}.</span>
+                <StudyMoveCell
+                  move={row.white}
+                  moves={moves}
+                  basePly={basePly}
+                  selectedMoveId={selectedMoveId}
+                  canEdit={canEdit}
+                  contextMenu={contextMenu}
+                  onSelect={onSelect}
+                  onOpenContext={openContext}
+                  onComment={chooseComment}
+                  onDelete={chooseDelete}
+                />
+                <StudyMoveCell
+                  move={row.black}
+                  moves={moves}
+                  basePly={basePly}
+                  selectedMoveId={selectedMoveId}
+                  canEdit={canEdit}
+                  contextMenu={contextMenu}
+                  onSelect={onSelect}
+                  onOpenContext={openContext}
+                  onComment={chooseComment}
+                  onDelete={chooseDelete}
+                />
+              </div>
+              {childVariations.map((variation) => (
+                <div className="study-variation-group" key={variation.id}>
+                  {renderLine(variation, variationDepth + 1)}
+                </div>
+              ))}
+            </Fragment>
+          );
+        })}
+      </div>
+    );
+  }
+
+  const rootChildren = studyMoveChildren(moves, null);
+
+  return (
+    <div className="study-move-tree">
+      {rootChildren.length ? (
+        <>
+          {renderLine(rootChildren[0])}
+          {rootChildren.slice(1).map((variation) => (
+            <div className="study-variation-group" key={variation.id}>
+              {renderLine(variation, 1)}
+            </div>
+          ))}
+        </>
+      ) : <div className="study-empty-line">Make a move on the board to start the chapter.</div>}
+    </div>
+  );
+}
+
 function BrowserAnalysisPage({ onHome }) {
   const initialSessionRef = useRef(null);
   if (!initialSessionRef.current) {
@@ -7433,25 +8105,39 @@ function studyAccountParams(account) {
 function StudyWorkspacePage({ account, studyId, onBack, onDeleted, onStudyLoaded }) {
   const [study, setStudy] = useState(null);
   const [activeChapterId, setActiveChapterId] = useState("");
+  const [selectedMoveId, setSelectedMoveId] = useState("");
+  const [commentingMoveId, setCommentingMoveId] = useState("");
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState("");
-  const [selectedPly, setSelectedPly] = useState(null);
+  const [syncStatus, setSyncStatus] = useState("connecting");
   const [liveEvaluation, setLiveEvaluation] = useState({ fen: "", value: null });
   const [variationStatus, setVariationStatus] = useState("idle");
-  const [classificationStatus, setClassificationStatus] = useState("");
   const [editingChapterId, setEditingChapterId] = useState("");
+  const [presence, setPresence] = useState([]);
+  const [collaboratorProvider, setCollaboratorProvider] = useState(account.platform || "lichess");
+  const [collaboratorUsername, setCollaboratorUsername] = useState("");
+  const [collaboratorBusy, setCollaboratorBusy] = useState(false);
+  const [collaboratorsOpen, setCollaboratorsOpen] = useState(false);
   const onStudyLoadedRef = useRef(onStudyLoaded);
+  const applyOperationRef = useRef(null);
+  const recheckedBookMovesRef = useRef(new Set());
 
   const activeChapter = study?.chapters?.find((chapter) => chapter.id === activeChapterId)
     || study?.chapters?.[0]
     || null;
   const rootFen = activeChapter?.root_fen || STARTING_FEN;
-  const moves = useMemo(() => activeChapter?.moves || [], [activeChapter?.moves]);
+  const moves = useMemo(() => normalizeStudyMovesClient(activeChapter?.moves), [activeChapter?.moves]);
   const basePly = useMemo(() => basePlyFromFen(rootFen), [rootFen]);
-  const annotations = useMemo(() => moves.map((move, index) => localAnnotationFromMove(move, basePly, index)), [moves, basePly]);
-  const activeAnnotation = annotations.find((annotation) => annotation.ply === selectedPly)
-    || annotations.at(-1)
-    || {
+  const latestMove = useMemo(() => latestStudyMainlineMove(moves), [moves]);
+  const activeMove = selectedMoveId === "__root__"
+    ? null
+    : moves.find((move) => move.id === selectedMoveId) || latestMove;
+  const commentMove = moves.find((move) => move.id === commentingMoveId)
+    || (activeMove?.comment ? activeMove : null);
+  const activeMovePly = activeMove ? studyMovePly(moves, activeMove.id, basePly) : basePly;
+  const activeAnnotation = activeMove
+    ? localAnnotationFromStudyMove(activeMove, moves, basePly)
+    : {
       ply: basePly,
       move_index: Math.max(1, Math.ceil(Math.max(1, basePly) / 2)),
       san: "position",
@@ -7466,59 +8152,85 @@ function StudyWorkspacePage({ account, studyId, onBack, onDeleted, onStudyLoaded
       cp_loss: 0,
       game_phase: "study",
     };
-  const displayedFen = activeAnnotation.fen_after || rootFen;
-  const displayedMoveCount = Math.max(0, Math.min(moves.length, (activeAnnotation.ply || basePly) - basePly));
-  const isLatestPosition = displayedMoveCount === moves.length;
+  const displayedFen = activeMove?.fenAfter || rootFen;
+  const positionAnnotations = activeMove?.annotations || activeChapter?.root_annotations || { arrows: [], circles: [] };
   const liveEvaluationValue = liveEvaluation.fen === displayedFen ? liveEvaluation.value : null;
+  const canEdit = study?.access_role === "owner" || study?.access_role === "editor";
+  const isOwner = study?.access_role === "owner";
+  const chapterCount = study?.chapters?.length || 0;
+  const chapterLimit = 10;
 
   useEffect(() => {
     onStudyLoadedRef.current = onStudyLoaded;
   }, [onStudyLoaded]);
 
-  function studyUrl(path = "") {
+  const studyUrl = useCallback((path = "") => {
     const params = studyAccountParams(account);
     return apiUrl(`/api/studies/${studyId}${path}?${params.toString()}`);
-  }
+  }, [account, studyId]);
+
+  const loadStudy = useCallback(async ({ quiet = false } = {}) => {
+    if (!studyId || !account.username || !account.platform) return;
+    if (!quiet) setStatus("loading");
+
+    try {
+      const response = await fetch(studyUrl(""));
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "unable to load study");
+      setStudy(payload);
+      setActiveChapterId((current) => (
+        payload.chapters.some((chapter) => chapter.id === current)
+          ? current
+          : payload.chapters[0]?.id || ""
+      ));
+      onStudyLoadedRef.current?.(payload);
+      setStatus("idle");
+      if (quiet) setSyncStatus("live");
+    } catch (loadError) {
+      setError(loadError.message || "unable to load study");
+      if (!quiet) setStatus("error");
+    }
+  }, [account.platform, account.username, studyId, studyUrl]);
 
   useEffect(() => {
-    if (!studyId || !account.username || !account.platform) return undefined;
+    const loadTimer = window.setTimeout(() => loadStudy(), 0);
+    return () => window.clearTimeout(loadTimer);
+  }, [loadStudy]);
 
-    let isActive = true;
+  useEffect(() => {
+    if (typeof EventSource === "undefined" || !studyId) return undefined;
+    const events = new EventSource(studyUrl("/events"));
+    let reloadTimer = null;
 
-    async function fetchStudy() {
-      setStatus("loading");
-      setError("");
-
+    events.addEventListener("connected", () => setSyncStatus("live"));
+    events.addEventListener("presence", (event) => {
       try {
-        const params = new URLSearchParams({
-          provider: account.platform,
-          username: account.username,
-        });
-        const response = await fetch(apiUrl(`/api/studies/${studyId}?${params.toString()}`));
-        const payload = await response.json();
-
-        if (!response.ok) throw new Error(payload.error || "unable to load study");
-        if (!isActive) return;
-        setStudy(payload);
-        setActiveChapterId((current) => (
-          payload.chapters.some((chapter) => chapter.id === current)
-            ? current
-            : payload.chapters[0]?.id || ""
-        ));
-        onStudyLoadedRef.current?.(payload);
-        setStatus("idle");
-      } catch (loadError) {
-        if (!isActive) return;
-        setError(loadError.message || "unable to load study");
-        setStatus("error");
+        setPresence(JSON.parse(event.data).users || []);
+      } catch {
+        setPresence([]);
       }
-    }
+    });
+    events.addEventListener("study-update", () => {
+      window.clearTimeout(reloadTimer);
+      reloadTimer = window.setTimeout(() => loadStudy({ quiet: true }), 80);
+    });
+    events.onerror = () => setSyncStatus("reconnecting");
 
-    fetchStudy();
     return () => {
-      isActive = false;
+      window.clearTimeout(reloadTimer);
+      events.close();
     };
-  }, [studyId, account.username, account.platform]);
+  }, [loadStudy, studyId, studyUrl]);
+
+  function replaceChapter(chapter) {
+    setStudy((current) => current
+      ? {
+        ...current,
+        updated_at: new Date().toISOString(),
+        chapters: current.chapters.map((item) => item.id === chapter.id ? chapter : item),
+      }
+      : current);
+  }
 
   async function patchStudyName(name) {
     const response = await fetch(studyUrl(""), {
@@ -7547,80 +8259,158 @@ function StudyWorkspacePage({ account, studyId, onBack, onDeleted, onStudyLoaded
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "unable to save chapter");
-    setStudy((current) => current
-      ? {
-        ...current,
-        updated_at: new Date().toISOString(),
-        chapters: current.chapters.map((chapter) => chapter.id === chapterId ? payload : chapter),
-      }
-      : current);
+    replaceChapter(payload);
     return payload;
   }
 
-  async function saveMoves(nextMoves) {
-    if (!activeChapter) return;
-    await patchChapter(activeChapter.id, { moves: nextMoves });
+  async function applyOperation(type, payload, { selectResult = false } = {}) {
+    if (!activeChapter || !canEdit) return null;
+    setSyncStatus("saving");
+    const response = await fetch(studyUrl(`/chapters/${activeChapter.id}/operations`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        provider: account.platform,
+        username: account.username,
+        type,
+        payload,
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      setSyncStatus("live");
+      throw new Error(result.error || "unable to update study");
+    }
+    replaceChapter(result.chapter);
+    if (selectResult) setSelectedMoveId(result.selectedMoveId || "__root__");
+    setSyncStatus("live");
+    return result;
   }
 
-  async function classifyStudyMoveAtIndex(index, move, moveNumber, baseMoves = moves) {
-    setClassificationStatus(`Classifying ${move.san || move.uci}.`);
+  useEffect(() => {
+    applyOperationRef.current = applyOperation;
+  });
 
-    try {
-      const result = await getOpeningBookClassification({
+  async function checkBookMove(moveId, move) {
+    const bookResult = await checkStudyMoveInOpeningDatabase({
         fen: move.fenBefore,
         playedUci: move.uci,
-        moveNumber,
-      }) || await classifyMoveWithCloudStockfish(move);
-      const nextMoves = baseMoves.map((item, itemIndex) => (
-        itemIndex === index && item.uci === move.uci && item.fenBefore === move.fenBefore
-          ? {
-            ...item,
-            classification: result.classification,
-            classificationStatus: "classified",
-            cpLoss: result.cpLoss,
-            evaluationBefore: result.evaluationBefore,
-            evaluationAfter: result.evaluationAfter,
-            bookMove: result.bookMove,
-            classifiedAt: result.classifiedAt,
-          }
-          : item
-      ));
-      await saveMoves(nextMoves);
-      setClassificationStatus(`${move.san || move.uci}: ${formatClassification(result.classification)} / ${(result.cpLoss / 100).toFixed(2)} pawns`);
-      return nextMoves;
-    } catch (classificationError) {
-      const nextMoves = baseMoves.map((item, itemIndex) => (
-        itemIndex === index && item.uci === move.uci && item.fenBefore === move.fenBefore
-          ? { ...item, classificationStatus: "failed", classificationError: classificationError.message || "classification failed" }
-          : item
-      ));
-      await saveMoves(nextMoves);
-      setClassificationStatus(classificationError.message || "Classification failed.");
-      return nextMoves;
+      }).catch(() => null);
+
+    if (bookResult) {
+      await applyOperation("update_move", {
+        moveId,
+        patch: {
+          classification: bookResult.classification,
+          classificationStatus: "classified",
+          bookMove: bookResult.bookMove,
+          opening: bookResult.opening,
+          classificationSource: bookResult.classificationSource,
+          bookPolicyVersion: bookResult.bookPolicyVersion,
+          classifiedAt: bookResult.classifiedAt,
+        },
+      });
+      return;
+    }
+
+    try {
+      const engineResult = await classifyMoveWithCloudStockfish(move);
+      await applyOperation("update_move", {
+        moveId,
+        patch: {
+          classification: engineResult.classification,
+          classificationStatus: "classified",
+          cpLoss: engineResult.cpLoss,
+          evaluationBefore: engineResult.evaluationBefore,
+          evaluationAfter: engineResult.evaluationAfter,
+          depth: engineResult.depth,
+          bookMove: null,
+          opening: null,
+          classificationSource: "stockfish",
+          bookPolicyVersion: null,
+          classifiedAt: engineResult.classifiedAt,
+        },
+      });
+    } catch {
+      await applyOperation("update_move", {
+        moveId,
+        patch: { classification: "analysis", classificationStatus: "failed" },
+      }).catch(() => {});
     }
   }
 
-  async function applyStudyMove(move) {
-    if (!activeChapter) return;
+  useEffect(() => {
+    const staleBookMove = moves.find((move) => (
+      ["book", "only"].includes(move.classification)
+      && Number(move.bookPolicyVersion || 0) < 2
+      && !recheckedBookMovesRef.current.has(`${activeChapter?.id}:${move.id}`)
+    ));
+    if (!staleBookMove || !activeChapter?.id) return undefined;
 
-    const moveIndex = displayedMoveCount;
-    const pendingMove = {
-      ...move,
-      classification: "analysis",
-      classificationStatus: "classifying",
+    const recheckKey = `${activeChapter.id}:${staleBookMove.id}`;
+    recheckedBookMovesRef.current.add(recheckKey);
+    let cancelled = false;
+    const timeoutId = window.setTimeout(async () => {
+      const bookResult = await checkStudyMoveInOpeningDatabase({
+        fen: staleBookMove.fenBefore,
+        playedUci: staleBookMove.uci,
+      }).catch(() => null);
+      if (cancelled) return;
+
+      if (bookResult) {
+        await applyOperationRef.current?.("update_move", {
+          moveId: staleBookMove.id,
+          patch: {
+            classification: bookResult.classification,
+            classificationStatus: "classified",
+            bookMove: bookResult.bookMove,
+            opening: bookResult.opening,
+            classificationSource: bookResult.classificationSource,
+            bookPolicyVersion: bookResult.bookPolicyVersion,
+            classifiedAt: bookResult.classifiedAt,
+          },
+        }).catch(() => {});
+        return;
+      }
+
+      const engineResult = await classifyMoveWithCloudStockfish(staleBookMove).catch(() => null);
+      if (!engineResult || cancelled) return;
+      await applyOperationRef.current?.("update_move", {
+        moveId: staleBookMove.id,
+        patch: {
+          classification: engineResult.classification,
+          classificationStatus: "classified",
+          cpLoss: engineResult.cpLoss,
+          evaluationBefore: engineResult.evaluationBefore,
+          evaluationAfter: engineResult.evaluationAfter,
+          depth: engineResult.depth,
+          bookMove: null,
+          opening: null,
+          classificationSource: "stockfish",
+          bookPolicyVersion: null,
+          classifiedAt: engineResult.classifiedAt,
+        },
+      }).catch(() => {});
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
     };
-    const nextMoves = [...moves.slice(0, displayedMoveCount), pendingMove];
+  }, [activeChapter?.id, moves]);
 
+  async function applyStudyMove(move, parentId = activeMove?.id || null) {
+    const moveId = analysisMoveId("study");
+    const pendingMove = { ...move, id: moveId };
     setError("");
-    setSelectedPly(basePly + moveIndex + 1);
     setLiveEvaluation({ fen: "", value: null });
-    await saveMoves(nextMoves);
-    classifyStudyMoveAtIndex(
-      moveIndex,
-      pendingMove,
-      pendingMove.moveNumber || Math.ceil((basePly + moveIndex + 1) / 2),
-      nextMoves
-    );
+    const result = await applyOperation("append_move", {
+      parentId,
+      move: pendingMove,
+    }, { selectResult: true });
+    const selectedId = result?.selectedMoveId || moveId;
+    checkBookMove(selectedId, move);
+    return selectedId;
   }
 
   async function handleBoardMove({ from, to }) {
@@ -7635,44 +8425,23 @@ function StudyWorkspacePage({ account, studyId, onBack, onDeleted, onStudyLoaded
   async function handlePlayEngineLine(line, moveIndex) {
     const uciMoves = (line?.pv || []).slice(0, moveIndex + 1);
     if (!uciMoves.length || variationStatus === "loading") return;
-
     setVariationStatus("loading");
     setError("");
 
     try {
       let cursorFen = displayedFen;
-      const nextMoves = [];
-
+      let parentId = activeMove?.id || null;
       for (const uci of uciMoves) {
         const move = buildLocalMove(cursorFen, {
           from: uci.slice(0, 2),
           to: uci.slice(2, 4),
           promotion: uci[4] || "q",
         });
-        nextMoves.push({
-          ...move,
-          classification: "analysis",
-          classificationStatus: "classifying",
-        });
+        parentId = await applyStudyMove(move, parentId);
         cursorFen = move.fenAfter;
       }
-
-      const combinedMoves = [...moves.slice(0, displayedMoveCount), ...nextMoves];
-      await saveMoves(combinedMoves);
-      setSelectedPly(basePly + displayedMoveCount + nextMoves.length);
-      let classifiedMoves = combinedMoves;
-      for (let index = 0; index < nextMoves.length; index += 1) {
-        const move = nextMoves[index];
-        const ply = basePly + displayedMoveCount + index + 1;
-        classifiedMoves = await classifyStudyMoveAtIndex(
-          displayedMoveCount + index,
-          move,
-          move.moveNumber || Math.ceil(ply / 2),
-          classifiedMoves
-        );
-      }
     } catch (lineError) {
-      setError(lineError.message || "Unable to play engine line.");
+      setError(lineError.message || "Unable to add engine line.");
     } finally {
       setVariationStatus("idle");
     }
@@ -7686,15 +8455,40 @@ function StudyWorkspacePage({ account, studyId, onBack, onDeleted, onStudyLoaded
     });
   }
 
-  const chapterCount = study?.chapters?.length || 0;
-  const chapterLimit = 10;
+  async function handlePositionAnnotations(annotations) {
+    try {
+      await applyOperation("set_position_annotations", {
+        moveId: activeMove?.id || null,
+        annotations,
+      });
+    } catch (annotationError) {
+      setError(annotationError.message || "Unable to save board annotations.");
+    }
+  }
+
+  async function handleUpdateMove(moveId, patch) {
+    try {
+      await applyOperation("update_move", { moveId, patch });
+    } catch (updateError) {
+      setError(updateError.message || "Unable to update move.");
+    }
+  }
+
+  async function handleDeleteMove(moveId) {
+    if (!window.confirm("Delete this move and every continuation beneath it?")) return;
+    try {
+      setCommentingMoveId("");
+      await applyOperation("delete_move", { moveId }, { selectResult: true });
+    } catch (deleteError) {
+      setError(deleteError.message || "Unable to delete move.");
+    }
+  }
 
   async function handleAddChapter() {
     if (chapterCount >= chapterLimit) {
       setError(`Studies can have up to ${chapterLimit} chapters.`);
       return;
     }
-
     try {
       const response = await fetch(studyUrl("/chapters"), {
         method: "POST",
@@ -7709,7 +8503,8 @@ function StudyWorkspacePage({ account, studyId, onBack, onDeleted, onStudyLoaded
       if (!response.ok) throw new Error(payload.error || "unable to add chapter");
       setStudy((current) => current ? { ...current, chapters: [...current.chapters, payload] } : current);
       setActiveChapterId(payload.id);
-      setSelectedPly(null);
+      setSelectedMoveId("__root__");
+      setCommentingMoveId("");
     } catch (chapterError) {
       setError(chapterError.message || "unable to add chapter");
     }
@@ -7717,18 +8512,16 @@ function StudyWorkspacePage({ account, studyId, onBack, onDeleted, onStudyLoaded
 
   async function handleDeleteChapter(chapterId) {
     if (!window.confirm("Delete this study chapter?")) return;
-
     try {
-      const params = studyAccountParams(account);
-      const response = await fetch(apiUrl(`/api/studies/${studyId}/chapters/${chapterId}?${params.toString()}`), {
-        method: "DELETE",
-      });
+      const response = await fetch(studyUrl(`/chapters/${chapterId}`), { method: "DELETE" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "unable to delete chapter");
       setStudy((current) => {
         if (!current) return current;
         const chapters = current.chapters.filter((chapter) => chapter.id !== chapterId);
         setActiveChapterId(chapters[0]?.id || "");
+        setSelectedMoveId("");
+        setCommentingMoveId("");
         setEditingChapterId("");
         return { ...current, chapters };
       });
@@ -7739,15 +8532,54 @@ function StudyWorkspacePage({ account, studyId, onBack, onDeleted, onStudyLoaded
 
   async function handleDeleteStudy() {
     if (!window.confirm("Delete this study permanently?")) return;
-
     try {
-      const params = studyAccountParams(account);
-      const response = await fetch(apiUrl(`/api/studies/${studyId}?${params.toString()}`), { method: "DELETE" });
+      const response = await fetch(studyUrl(""), { method: "DELETE" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "unable to delete study");
       onDeleted?.();
     } catch (deleteError) {
       setError(deleteError.message || "unable to delete study");
+    }
+  }
+
+  async function handleAddCollaborator(event) {
+    event.preventDefault();
+    if (!collaboratorUsername.trim()) return;
+    setCollaboratorBusy(true);
+    setError("");
+    try {
+      const response = await fetch(studyUrl("/collaborators"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: account.platform,
+          username: account.username,
+          collaboratorProvider,
+          collaboratorUsername: collaboratorUsername.trim(),
+          role: "editor",
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "unable to add collaborator");
+      setStudy((current) => current ? { ...current, collaborators: payload.collaborators || [] } : current);
+      setCollaboratorUsername("");
+    } catch (collaboratorError) {
+      setError(collaboratorError.message || "unable to add collaborator");
+    } finally {
+      setCollaboratorBusy(false);
+    }
+  }
+
+  async function handleRemoveCollaborator(userId) {
+    try {
+      const response = await fetch(studyUrl(`/collaborators/${userId}`), { method: "DELETE" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "unable to remove collaborator");
+      setStudy((current) => current
+        ? { ...current, collaborators: current.collaborators.filter((item) => item.id !== userId) }
+        : current);
+    } catch (collaboratorError) {
+      setError(collaboratorError.message || "unable to remove collaborator");
     }
   }
 
@@ -7764,17 +8596,25 @@ function StudyWorkspacePage({ account, studyId, onBack, onDeleted, onStudyLoaded
       <div className="study-page">
         <aside className="study-panel study-chapters-panel">
           <div className="study-panel-header">
-            <span>Pro study</span>
+            <span>{isOwner ? "Owner" : study?.access_role || "Shared"} study</span>
             <button type="button" onClick={onBack}>dashboard</button>
           </div>
           <input
             className="study-title-input"
             value={study?.name || ""}
+            disabled={!canEdit}
             onChange={(event) => setStudy((current) => current ? { ...current, name: event.target.value } : current)}
-            onBlur={(event) => patchStudyName(event.target.value).catch((renameError) => setError(renameError.message))}
+            onBlur={(event) => {
+              if (canEdit) patchStudyName(event.target.value).catch((renameError) => setError(renameError.message));
+            }}
           />
+          <div className="study-live-status">
+            <span className={syncStatus === "live" ? "is-live" : ""} />
+            {syncStatus}
+            <small>{presence.length} online</small>
+          </div>
           <div className="study-chapter-list">
-            {(study?.chapters || []).map((chapter, index) => (
+            {(study?.chapters || []).map((chapter) => (
               <div
                 key={chapter.id}
                 className={chapter.id === activeChapter?.id ? "study-chapter is-active" : "study-chapter"}
@@ -7782,19 +8622,19 @@ function StudyWorkspacePage({ account, studyId, onBack, onDeleted, onStudyLoaded
                 tabIndex={0}
                 onClick={() => {
                   setActiveChapterId(chapter.id);
-                  setSelectedPly(null);
+                  setSelectedMoveId("");
+                  setCommentingMoveId("");
                   setLiveEvaluation({ fen: "", value: null });
                 }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
                     setActiveChapterId(chapter.id);
-                    setSelectedPly(null);
-                    setLiveEvaluation({ fen: "", value: null });
+                    setSelectedMoveId("");
+                    setCommentingMoveId("");
                   }
                 }}
               >
-                <span>{index + 1}</span>
                 {editingChapterId === chapter.id ? (
                   <input
                     className="study-chapter-name-input"
@@ -7806,12 +8646,7 @@ function StudyWorkspacePage({ account, studyId, onBack, onDeleted, onStudyLoaded
                       if (event.key === "Escape") {
                         event.stopPropagation();
                         setEditingChapterId("");
-                        fetch(studyUrl(""))
-                          .then((response) => response.json())
-                          .then((payload) => {
-                            if (payload?.chapters) setStudy(payload);
-                          })
-                          .catch(() => {});
+                        loadStudy({ quiet: true });
                       }
                     }}
                     onChange={(event) => {
@@ -7828,8 +8663,9 @@ function StudyWorkspacePage({ account, studyId, onBack, onDeleted, onStudyLoaded
                 ) : (
                   <span
                     className="study-chapter-name-display"
-                    title="Double-click to rename"
+                    title={canEdit ? "Double-click to rename" : chapter.name}
                     onDoubleClick={(event) => {
+                      if (!canEdit) return;
                       event.preventDefault();
                       event.stopPropagation();
                       setEditingChapterId(chapter.id);
@@ -7838,29 +8674,65 @@ function StudyWorkspacePage({ account, studyId, onBack, onDeleted, onStudyLoaded
                     {chapter.name}
                   </span>
                 )}
-                <small>{(chapter.moves || []).length} moves</small>
               </div>
             ))}
           </div>
-          <div className="study-panel-actions">
+          {canEdit ? (
+            <div className="study-panel-actions">
+              <button type="button" disabled={chapterCount >= chapterLimit} onClick={handleAddChapter}>
+                add chapter ({chapterCount}/{chapterLimit})
+              </button>
+              <button type="button" disabled={!activeChapter || chapterCount <= 1} onClick={() => handleDeleteChapter(activeChapter.id)}>delete chapter</button>
+              {isOwner ? <button type="button" onClick={handleDeleteStudy}>delete study</button> : null}
+            </div>
+          ) : null}
+
+          <div className={collaboratorsOpen ? "study-collaboration is-open" : "study-collaboration"}>
             <button
               type="button"
-              disabled={chapterCount >= chapterLimit}
-              title={chapterCount >= chapterLimit ? `${chapterLimit} chapter limit reached` : ""}
-              onClick={handleAddChapter}
+              className="study-collaboration-toggle"
+              aria-expanded={collaboratorsOpen}
+              onClick={() => setCollaboratorsOpen((current) => !current)}
             >
-              add chapter ({chapterCount}/{chapterLimit})
+              <span>collaborators</span>
+              <small>{(study?.collaborators?.length || 0) + 1}</small>
+              <b>{collaboratorsOpen ? "−" : "+"}</b>
             </button>
-            <button type="button" disabled={!activeChapter || (study?.chapters?.length || 0) <= 1} onClick={() => handleDeleteChapter(activeChapter.id)}>delete chapter</button>
-            <button type="button" onClick={handleDeleteStudy}>delete study</button>
+            {collaboratorsOpen ? (
+              <div className="study-collaboration-content">
+                <div className="study-collaborator-list">
+                  <div><strong>{study?.owner_username}</strong><span>{study?.owner_provider} · owner</span></div>
+                  {(study?.collaborators || []).map((collaborator) => (
+                    <div key={collaborator.id}>
+                      <strong>{collaborator.username}</strong>
+                      <span>{collaborator.provider} · {collaborator.role}</span>
+                      {isOwner ? <button type="button" onClick={() => handleRemoveCollaborator(collaborator.id)}>remove</button> : null}
+                    </div>
+                  ))}
+                </div>
+                {isOwner ? (
+                  <form className="study-collaborator-form" onSubmit={handleAddCollaborator}>
+                    <select value={collaboratorProvider} onChange={(event) => setCollaboratorProvider(event.target.value)}>
+                      <option value="lichess">Lichess</option>
+                      <option value="chess.com">Chess.com</option>
+                    </select>
+                    <input
+                      value={collaboratorUsername}
+                      onChange={(event) => setCollaboratorUsername(event.target.value)}
+                      placeholder="username"
+                    />
+                    <button type="submit" disabled={collaboratorBusy}>{collaboratorBusy ? "adding" : "add"}</button>
+                  </form>
+                ) : null}
+              </div>
+            ) : null}
           </div>
           {error ? <p className="study-error">{error}</p> : null}
-          {classificationStatus ? <p className="study-status">{classificationStatus}</p> : null}
         </aside>
 
         <main className="study-board-column">
           <div className="study-board-meta">
-            <span>{activeChapter?.name || "Chapter"}</span>
+            <span>{activeChapter?.name || "Chapter"} · ply {activeMovePly}</span>
             <span>{fenParts(displayedFen).turn === "w" ? "White" : "Black"} to move</span>
           </div>
           <div className="board-with-eval study-board-wrap">
@@ -7868,31 +8740,71 @@ function StudyWorkspacePage({ account, studyId, onBack, onDeleted, onStudyLoaded
               fen={displayedFen}
               annotation={activeAnnotation}
               maxWidth="680px"
-              interactive={isLatestPosition && variationStatus !== "loading"}
-              onMove={isLatestPosition ? handleBoardMove : null}
+              interactive={canEdit && variationStatus !== "loading"}
+              onMove={canEdit ? handleBoardMove : null}
               isMoveBusy={variationStatus === "loading"}
+              persistedArrows={positionAnnotations.arrows || []}
+              persistedCircles={positionAnnotations.circles || []}
+              onAnnotationsChange={canEdit ? handlePositionAnnotations : null}
             />
             <CurrentEvalBar annotation={activeAnnotation} evaluationOverride={liveEvaluationValue} />
           </div>
+          <div className="study-board-help">
+            Drag pieces to add a continuation. Right-drag for arrows, right-click for circles. Marks are saved to this exact position.
+          </div>
         </main>
 
-        <aside className="study-panel study-lines-panel">
-          <StockfishLinesPanel
-            fen={displayedFen}
-            onPlayLineMove={handlePlayEngineLine}
-            onEvaluationChange={handleEvaluationChange}
-            isApplyingVariation={variationStatus === "loading"}
-          />
-          <div>
-            <div className="study-section-label">moves and annotations</div>
-            <StandaloneMoveList
-              annotations={annotations}
-              activePly={activeAnnotation.ply}
-              onSelectPly={(ply) => {
-                setSelectedPly(ply);
-                setLiveEvaluation({ fen: "", value: null });
-              }}
+        <aside className="study-lines-column">
+          {commentMove ? (
+            <StudyMoveCommentCard
+              key={`${commentMove.id}-${commentMove.comment || ""}`}
+              move={commentMove}
+              canEdit={canEdit}
+              editing={commentingMoveId === commentMove.id}
+              onUpdate={handleUpdateMove}
+              onClose={() => setCommentingMoveId("")}
             />
+          ) : null}
+          <div className="study-panel study-lines-panel">
+            <StockfishLinesPanel
+              fen={displayedFen}
+              onPlayLineMove={canEdit ? handlePlayEngineLine : null}
+              onEvaluationChange={handleEvaluationChange}
+              isApplyingVariation={variationStatus === "loading"}
+            />
+            <div>
+              <div className="study-move-list-header">
+                <div className="study-section-label">moves and annotations</div>
+                <button
+                  type="button"
+                  className={selectedMoveId === "__root__" ? "is-active" : ""}
+                  onClick={() => {
+                    setSelectedMoveId("__root__");
+                    setCommentingMoveId("");
+                    setLiveEvaluation({ fen: "", value: null });
+                  }}
+                >
+                  start position
+                </button>
+              </div>
+              <StudyMoveTree
+                moves={moves}
+                basePly={basePly}
+                selectedMoveId={activeMove?.id || (selectedMoveId === "__root__" ? "__root__" : "")}
+                canEdit={canEdit}
+                onSelect={(moveId) => {
+                  setSelectedMoveId(moveId);
+                  setCommentingMoveId("");
+                  setLiveEvaluation({ fen: "", value: null });
+                }}
+                onComment={(moveId) => {
+                  setSelectedMoveId(moveId);
+                  setCommentingMoveId(moveId);
+                  setLiveEvaluation({ fen: "", value: null });
+                }}
+                onDelete={handleDeleteMove}
+              />
+            </div>
           </div>
         </aside>
       </div>
@@ -8117,23 +9029,6 @@ function PuzzlePage({ account, onBack, onProgress }) {
       )}
     >
       <main className="puzzle-page">
-        <header className="puzzle-page-heading">
-          <div>
-            <span>Adaptive tactics</span>
-            <h1>Puzzles</h1>
-            <p>Your Elo is private and only tunes the difficulty of the next position.</p>
-          </div>
-          <div className="puzzle-current-rating">
-            <span>Your Elo</span>
-            <strong>{currentRating}</strong>
-            <small>
-              {account.isPremium
-                ? "Unlimited puzzles"
-                : `${currentQuota.remainingToday} of ${currentQuota.dailyLimit} left today`}
-            </small>
-          </div>
-        </header>
-
         {loading ? (
           <section className="puzzle-loading">Finding a puzzle near Elo {account.puzzleRating}.</section>
         ) : error && !puzzle ? (
@@ -8162,6 +9057,16 @@ function PuzzlePage({ account, onBack, onProgress }) {
             </section>
 
             <aside className="puzzle-side-panel">
+              <div className="puzzle-current-rating">
+                <span>Your Elo</span>
+                <strong>{currentRating}</strong>
+                <small>
+                  {account.isPremium
+                    ? "Unlimited puzzles"
+                    : `${currentQuota.remainingToday} of ${currentQuota.dailyLimit} left today`}
+                </small>
+              </div>
+
               <div className="puzzle-timer">
                 <span>Time</span>
                 <strong>{formatPuzzleTime(displayElapsedMs)}</strong>
@@ -8251,7 +9156,8 @@ function StudiesDashboardSection({
   const [newStudyName, setNewStudyName] = useState("Untitled study");
   const [editingStudyId, setEditingStudyId] = useState("");
   const [editingStudyName, setEditingStudyName] = useState("");
-  const canCreateStudy = account.isPremium || studies.length < 1;
+  const ownedStudyCount = studies.filter((study) => study.access_role === "owner" || !study.access_role).length;
+  const canCreateStudy = account.isPremium || ownedStudyCount < 1;
 
   function startCreate() {
     if (!canCreateStudy) {
@@ -8357,8 +9263,9 @@ function StudiesDashboardSection({
                 ) : (
                   <strong
                     className="dashboard-study-name-display"
-                    title="Double-click to rename"
+                    title={study.access_role === "viewer" ? study.name : "Double-click to rename"}
                     onDoubleClick={(event) => {
+                      if (study.access_role === "viewer") return;
                       event.preventDefault();
                       event.stopPropagation();
                       startRename(study);
@@ -8369,12 +9276,15 @@ function StudiesDashboardSection({
                 )}
                 <span className="dashboard-study-info">
                   {study.chapter_count} chapter{study.chapter_count === 1 ? "" : "s"} / {study.move_count} moves
+                  {study.access_role && study.access_role !== "owner" ? ` · shared by ${study.owner_username}` : ""}
                 </span>
                 <small className="dashboard-study-updated">Updated {formatPlayedDate(study.updated_at)}</small>
               </div>
               <div className="dashboard-study-actions">
                 <button type="button" onClick={() => onOpen(study.id)}>open study</button>
-                <button type="button" onClick={() => onDelete(study.id)}>delete</button>
+                {study.access_role === "owner" || !study.access_role ? (
+                  <button type="button" onClick={() => onDelete(study.id)}>delete</button>
+                ) : null}
               </div>
             </article>
           ))}
@@ -8817,6 +9727,7 @@ export default function App() {
   const [studiesLoading, setStudiesLoading] = useState(false);
   const [studiesError, setStudiesError] = useState("");
   const [selectedStudyId, setSelectedStudyId] = useState(initialStudyIdFromLocation);
+  const [selectedGameId, setSelectedGameId] = useState(initialGameIdFromLocation);
   const [selectedProfile, setSelectedProfile] = useState(profileFromLocation);
 
   function handleBoardThemeChange(themeId) {
@@ -8865,8 +9776,12 @@ export default function App() {
     const handleProfileSettingsNavigation = () => {
       if (readStoredAccount().username) setView("profile-settings");
     };
+    const handleInboxNavigation = () => {
+      if (readStoredAccount().username) setView("inbox");
+    };
     const handlePopState = () => {
       setSelectedStudyId(initialStudyIdFromLocation());
+      setSelectedGameId(initialGameIdFromLocation());
       setSelectedProfile(profileFromLocation());
       setView(initialViewForAccount(readStoredAccount()));
     };
@@ -8874,11 +9789,13 @@ export default function App() {
     window.addEventListener(LANDING_NAVIGATION_EVENT, handleLandingNavigation);
     window.addEventListener(UPGRADE_NAVIGATION_EVENT, handleUpgradeNavigation);
     window.addEventListener(PROFILE_SETTINGS_NAVIGATION_EVENT, handleProfileSettingsNavigation);
+    window.addEventListener(INBOX_NAVIGATION_EVENT, handleInboxNavigation);
     window.addEventListener("popstate", handlePopState);
     return () => {
       window.removeEventListener(LANDING_NAVIGATION_EVENT, handleLandingNavigation);
       window.removeEventListener(UPGRADE_NAVIGATION_EVENT, handleUpgradeNavigation);
       window.removeEventListener(PROFILE_SETTINGS_NAVIGATION_EVENT, handleProfileSettingsNavigation);
+      window.removeEventListener(INBOX_NAVIGATION_EVENT, handleInboxNavigation);
       window.removeEventListener("popstate", handlePopState);
     };
   }, []);
@@ -8886,13 +9803,13 @@ export default function App() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const nextPath = pathForView(view, selectedStudyId, selectedProfile);
+    const nextPath = pathForView(view, selectedStudyId, selectedProfile, selectedGameId);
     const nextUrl = `${nextPath}${window.location.search}${window.location.hash}`;
 
     if (window.location.pathname !== nextPath) {
       window.history.pushState({}, "", nextUrl);
     }
-  }, [view, selectedStudyId, selectedProfile]);
+  }, [view, selectedStudyId, selectedProfile, selectedGameId]);
 
   function handleLogout() {
     setAccount(createEmptyAccount());
@@ -8908,6 +9825,7 @@ export default function App() {
     setStudiesError("");
     setStudiesLoading(false);
     setSelectedStudyId("");
+    setSelectedGameId("");
     setSelectedProfile(null);
     setDashboardReloadKey((current) => current + 1);
     setView("landing");
@@ -9319,6 +10237,45 @@ export default function App() {
     };
   }, [view, account.username, account.platform]);
 
+  useEffect(() => {
+    if (view !== "analysis" || !selectedGameId || latestGame?.id === selectedGameId) {
+      return undefined;
+    }
+
+    let isActive = true;
+
+    async function loadSelectedGame() {
+      try {
+        setDashboardLoading(true);
+        setDashboardError("");
+        const response = await fetch(apiUrl(`/api/games/${selectedGameId}`));
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload.error || "unable to load game");
+        }
+        if (!isActive) return;
+
+        setLatestGame(payload);
+        setSelectedPly(
+          payload.annotations?.find((annotation) => ["blunder", "miss"].includes(visualClassification(annotation)))?.ply
+          || payload.annotations?.[0]?.ply
+          || null
+        );
+      } catch (loadError) {
+        if (isActive) setDashboardError(loadError.message || "unable to load game");
+      } finally {
+        if (isActive) setDashboardLoading(false);
+      }
+    }
+
+    loadSelectedGame();
+
+    return () => {
+      isActive = false;
+    };
+  }, [view, selectedGameId, latestGame?.id]);
+
   async function createStudy(name) {
     try {
       setStudiesError("");
@@ -9387,6 +10344,7 @@ export default function App() {
     if (!gameId) return;
 
     try {
+      setSelectedGameId(gameId);
       setDashboardLoading(true);
       setDashboardError("");
       const response = await fetch(apiUrl(`/api/games/${gameId}`));
@@ -9404,6 +10362,31 @@ export default function App() {
     } finally {
       setDashboardLoading(false);
     }
+  }
+
+  function openNotification(notification) {
+    const href = notification.href || "";
+    const gameMatch = href.match(/^\/games\/([^/]+)/);
+
+    if (gameMatch) {
+      setLatestGame(null);
+      setSelectedGameId(gameMatch[1]);
+      setDashboardError("");
+      setView("analysis");
+      return;
+    }
+
+    if (href === "/puzzles") {
+      setView("puzzles");
+      return;
+    }
+
+    if (href === "/import") {
+      setView("import");
+      return;
+    }
+
+    setView("dash");
   }
 
   if (view === "profile" && selectedProfile) {
@@ -9592,6 +10575,16 @@ export default function App() {
     );
   }
 
+  if (view === "inbox" && account.username) {
+    return (
+      <InboxPage
+        account={account}
+        onBack={() => setView("dash")}
+        onOpen={openNotification}
+      />
+    );
+  }
+
   if (view === "profile-settings" && account.username) {
     return (
       <ProfileSettingsPage
@@ -9628,6 +10621,10 @@ export default function App() {
               name: loadedStudy.name,
               created_at: loadedStudy.created_at,
               updated_at: loadedStudy.updated_at,
+              access_role: loadedStudy.access_role,
+              owner_username: loadedStudy.owner_username,
+              owner_provider: loadedStudy.owner_provider,
+              collaborator_count: loadedStudy.collaborators?.length || 0,
               chapter_count: loadedStudy.chapters?.length || 0,
               move_count: (loadedStudy.chapters || []).reduce((total, chapter) => total + (chapter.moves?.length || 0), 0),
             };
@@ -9680,14 +10677,36 @@ export default function App() {
     );
   }
 
-  if (view === "analysis" && latestGame) {
+  if (view === "analysis") {
+    if (latestGame && (!selectedGameId || latestGame.id === selectedGameId)) {
+      return (
+        <AnalysisPage
+          game={latestGame}
+          selectedPly={selectedPly}
+          onSelectPly={setSelectedPly}
+          onHome={() => {
+            setSelectedGameId("");
+            setView("dash");
+          }}
+        />
+      );
+    }
+
     return (
-      <AnalysisPage
-        game={latestGame}
-        selectedPly={selectedPly}
-        onSelectPly={setSelectedPly}
-        onHome={() => setView("dash")}
-      />
+      <AppShell view="analysis" onHome={() => setView("dash")}>
+        <div className={`analysis-route-state${dashboardError ? " is-error" : ""}`}>
+          <strong>{dashboardError || (dashboardLoading ? "Loading game analysis" : "Game analysis unavailable")}</strong>
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedGameId("");
+              setView("dash");
+            }}
+          >
+            dashboard
+          </button>
+        </div>
+      </AppShell>
     );
   }
 

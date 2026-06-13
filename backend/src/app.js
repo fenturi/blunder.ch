@@ -5,6 +5,7 @@ import { analysisRouter } from "./routes/analysis.js";
 import { billingRouter, billingWebhookRouter } from "./routes/billing.js";
 import { importsRouter } from "./routes/imports.js";
 import { gamesRouter } from "./routes/games.js";
+import { notificationsRouter } from "./routes/notifications.js";
 import { openingsRouter } from "./routes/openings.js";
 import { puzzlesRouter } from "./routes/puzzles.js";
 import { studiesRouter } from "./routes/studies.js";
@@ -45,6 +46,7 @@ export function createApp() {
   app.use("/api/analysis", analysisRouter);
   app.use("/api/imports", importsRouter);
   app.use("/api/games", gamesRouter);
+  app.use("/api/notifications", notificationsRouter);
   app.use("/api/openings", openingsRouter);
   app.use("/api/puzzles", puzzlesRouter);
   app.use("/api/studies", studiesRouter);
