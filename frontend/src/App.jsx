@@ -3951,18 +3951,20 @@ function AppShell({
           ) : null}
           {headerActions}
           {shellAccount.username ? (
-            <NotificationBell account={shellAccount} active={view === "inbox"} />
-          ) : null}
-          {shellAccount.username && view !== "profile-settings" && view !== "landing" ? (
-            <button
-              type="button"
-              className="header-profile-button"
-              onClick={handleProfileClick}
-              title={`${shellAccount.username} profile`}
-              aria-label="Open profile settings"
-            >
-              <img src={avatarSource(shellAccount)} alt="" draggable="false" />
-            </button>
+            <div className="app-shell-personal-actions">
+              <NotificationBell account={shellAccount} active={view === "inbox"} />
+              {view !== "profile-settings" && view !== "landing" ? (
+                <button
+                  type="button"
+                  className="header-profile-button"
+                  onClick={handleProfileClick}
+                  title={`${shellAccount.username} profile`}
+                  aria-label="Open profile settings"
+                >
+                  <img src={avatarSource(shellAccount)} alt="" draggable="false" />
+                </button>
+              ) : null}
+            </div>
           ) : null}
         </div>
       </div>
