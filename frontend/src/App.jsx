@@ -6593,6 +6593,7 @@ function UpgradePage({ account, onBack, onUpgraded }) {
   const [status, setStatus] = useState("idle");
   const [message, setMessage] = useState("");
   const hasAccount = !!account.username;
+  const premiumDisabledForBeta = true;
 
   const buttonStyle = sx({
     justifySelf: "start",
@@ -6600,7 +6601,7 @@ function UpgradePage({ account, onBack, onUpgraded }) {
     border: "1px solid rgba(255,255,255,0.14)",
     color: status === "loading" ? "rgba(255,255,255,0.35)" : "#fff",
     minHeight: "42px",
-    cursor: status === "loading" || !hasAccount ? "default" : "pointer",
+    cursor: status === "loading" || (!hasAccount && !premiumDisabledForBeta) ? "default" : "pointer",
     fontSize: "15px",
     fontWeight: 200,
     letterSpacing: ".06em",
@@ -6650,6 +6651,18 @@ function UpgradePage({ account, onBack, onUpgraded }) {
     }
   }
 
+  function handlePremiumAction() {
+    if (premiumDisabledForBeta) {
+      setStatus("success");
+      setMessage(hasAccount
+        ? "we'll notify you when premium is available"
+        : "create an account and we'll notify you when premium is available");
+      return;
+    }
+
+    startCheckout();
+  }
+
   return (
     <AppShell view="upgrade" onHome={onBack}>
       <div
@@ -6683,7 +6696,7 @@ function UpgradePage({ account, onBack, onUpgraded }) {
           <div style={sx({ display: "grid", gap: "0" })}>
             <UpgradeMetric label="daily allowance" value="5 games" />
             <UpgradeMetric label="replenish" value="24:00 clock" />
-            <UpgradeMetric label="price" value="$4 / month" />
+            <UpgradeMetric label="availability" value="beta waitlist" />
           </div>
         </section>
 
@@ -6710,18 +6723,18 @@ function UpgradePage({ account, onBack, onUpgraded }) {
               {hasAccount ? `${account.platform} / ${account.username}` : "connect an account first"}
             </span>
             <span style={sx({ fontSize: "15px", lineHeight: 1.55, color: "rgba(255,255,255,0.42)" })}>
-              Stripe hosts the payment screen. The server creates the session and activates premium only after a paid checkout is confirmed.
+              Premium is not available for the beta version. Stripe checkout is paused for now, and upgrades will reopen after beta.
             </span>
           </div>
 
           <div style={sx({ display: "flex", gap: "22px", alignItems: "baseline", flexWrap: "wrap" })}>
             <button
               type="button"
-              disabled={!hasAccount || status === "loading"}
-              onClick={startCheckout}
+              disabled={status === "loading" || (!hasAccount && !premiumDisabledForBeta)}
+              onClick={handlePremiumAction}
               style={buttonStyle}
             >
-              {status === "loading" ? "opening checkout" : account.isPremium ? "premium active" : "upgrade with stripe"}
+              {status === "loading" ? "opening checkout" : account.isPremium ? "premium active" : "notify me"}
             </button>
             <button
               type="button"

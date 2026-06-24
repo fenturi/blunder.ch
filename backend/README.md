@@ -46,7 +46,7 @@ Node.js backend for importing Chess.com and Lichess games, storing PGNs in Postg
 - If `LLM_API_KEY` is empty, the pipeline still works and stores annotations without explanations.
 - Put the Stripe secret key in `STRIPE_SECRET_KEY`; never expose it in frontend code.
 - Puzzle definitions are fetched from Lichess and cached temporarily in Redis. PostgreSQL stores only user puzzle progress.
-- Free accounts receive 5 new puzzles per UTC day; Pro accounts are unlimited. Refreshing resumes the active puzzle without spending another slot.
+- Free accounts receive 25 new puzzles per UTC day; Pro accounts are unlimited. Refreshing resumes the active puzzle without spending another slot.
 - Set `STRIPE_WEBHOOK_SECRET` from the Stripe CLI or dashboard webhook endpoint for production billing.
 - Set `RESET_DATABASE_CODE` to a private 32+ character secret before using `/dev` to reset production data.
 - Pause the Railway worker before a production reset, then restart it after the database and queues are cleared.

@@ -64,11 +64,11 @@ test("free puzzle quota resets on a new UTC day", () => {
   const nextDay = puzzleQuota({
     is_premium: false,
     puzzle_daily_date: "2026-06-12",
-    puzzle_daily_count: 5,
+    puzzle_daily_count: 25,
   }, "2026-06-13");
 
-  assert.equal(currentDay.remainingToday, 2);
-  assert.equal(nextDay.remainingToday, 5);
+  assert.equal(currentDay.remainingToday, 22);
+  assert.equal(nextDay.remainingToday, 25);
 });
 
 test("premium puzzle quota is unlimited", () => {

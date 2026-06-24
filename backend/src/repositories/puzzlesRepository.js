@@ -1,7 +1,7 @@
 import { withTransaction } from "../db.js";
 import { calculatePuzzleRating } from "../services/puzzleRatingService.js";
 
-export const FREE_DAILY_PUZZLE_LIMIT = 5;
+export const FREE_DAILY_PUZZLE_LIMIT = 25;
 
 function utcDateString(date = new Date()) {
   return date.toISOString().slice(0, 10);
@@ -78,7 +78,7 @@ export async function claimPuzzleSlot(userId) {
     const quota = puzzleQuota(user);
 
     if (quota.remainingToday <= 0) {
-      const error = new Error("Free accounts include 5 puzzles per day. Upgrade to Pro for unlimited puzzles.");
+      const error = new Error(`Free accounts include ${FREE_DAILY_PUZZLE_LIMIT} puzzles per day. Upgrade to Pro for unlimited puzzles.`);
       error.status = 429;
       error.details = { quota };
       throw error;

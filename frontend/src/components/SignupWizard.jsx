@@ -5,6 +5,7 @@ const PLAN_ALLOWANCES = {
   free: 1,
   pro: 5,
 };
+const PREMIUM_DISABLED_FOR_BETA = true;
 
 function isEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -54,16 +55,17 @@ function textButtonStyle(disabled = false) {
   };
 }
 
-function PlanCard({ plan, selected, onSelect }) {
+function PlanCard({ plan, selected, onSelect, disabled = false }) {
   const isPro = plan === "pro";
   const rows = isPro
-    ? [["Daily games", "5"], ["Replenish", "24:00 hours"], ["Price", "$4/month"]]
+    ? [["Daily games", "5"], ["Replenish", "24:00 hours"], ["Status", "Beta waitlist"]]
     : [["Daily games", "1"], ["Replenish", "24:00 hours"], ["Price", "$0"]];
 
   return (
     <button
       type="button"
-      onClick={onSelect}
+      disabled={disabled}
+      onClick={disabled ? undefined : onSelect}
       className={selected ? "signup-plan-card is-selected" : "signup-plan-card"}
       style={{
         width: "100%",
@@ -71,7 +73,8 @@ function PlanCard({ plan, selected, onSelect }) {
         border: selected ? "1px solid rgba(255,255,255,0.58)" : "1px solid rgba(255,255,255,0.1)",
         borderRadius: "8px",
         color: "#fff",
-        cursor: "pointer",
+        cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.55 : 1,
         padding: "18px",
         textAlign: "left",
         fontFamily: "inherit",
@@ -118,7 +121,7 @@ function Summary({ state }) {
       <strong style={{ color: "#fff", fontWeight: 250 }}>Confirm analysis</strong>
       <span>{state.provider} / {state.username}</span>
       <span>{gamesToday} game{gamesToday === 1 ? "" : "s"} today</span>
-      <span>{state.plan === "pro" ? "Pro, $4/month" : "Regular, $0/month"}</span>
+      <span>{state.plan === "pro" ? "Pro, beta waitlist" : "Regular, $0/month"}</span>
     </div>
   );
 }
@@ -194,6 +197,12 @@ export default function SignupWizard({ onImported, onRegistered }) {
 
   async function submit(event) {
     event.preventDefault();
+    if (state.plan === "pro" && PREMIUM_DISABLED_FOR_BETA) {
+      setStatus("success");
+      setMessage("premium is not available for the beta version");
+      return;
+    }
+
     setStatus("loading");
     setMessage(state.plan === "pro" ? "creating account" : "queueing import");
     const deviceId = getDeviceId();
@@ -380,11 +389,16 @@ export default function SignupWizard({ onImported, onRegistered }) {
           <div style={{ display: "grid", gap: "24px", maxWidth: "760px" }}>
             <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "14px" }}>
               <PlanCard plan="free" selected={state.plan === "free"} onSelect={() => update({ plan: "free" })} />
-              <PlanCard plan="pro" selected={state.plan === "pro"} onSelect={() => update({ plan: "pro" })} />
+              <PlanCard
+                plan="pro"
+                selected={state.plan === "pro"}
+                disabled={PREMIUM_DISABLED_FOR_BETA}
+                onSelect={() => update({ plan: "pro" })}
+              />
             </section>
             <div style={{ color: "rgba(255,255,255,0.48)", fontSize: "15px" }}>
               {state.plan === "pro"
-                ? "Pro unlocks 5 games after Stripe checkout. Your allowance refills to full after a 24:00 hour clock."
+                ? "Premium is not available for the beta version."
                 : "1 game will be analysed now. Your allowance refills to full after a 24:00 hour clock."}
             </div>
             <div style={{ color: "rgba(255,255,255,0.48)", fontSize: "15px" }}>Estimated: {cost}</div>
@@ -400,10 +414,10 @@ export default function SignupWizard({ onImported, onRegistered }) {
             {state.plan === "pro" ? (
               <div style={{ border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", padding: "18px", display: "grid", gap: "18px" }}>
                 <div style={{ color: "rgba(255,255,255,0.42)", fontSize: "13px", letterSpacing: ".12em", textTransform: "uppercase" }}>
-                  Secure Stripe checkout
+                  Premium beta waitlist
                 </div>
                 <div style={{ color: "rgba(255,255,255,0.5)", fontSize: "15px", lineHeight: 1.55 }}>
-                  Payment details are collected by Stripe. Blunder only stores your account status after checkout is paid.
+                  Premium is not available for the beta version. Stripe checkout is paused for now.
                 </div>
               </div>
             ) : null}
@@ -411,7 +425,7 @@ export default function SignupWizard({ onImported, onRegistered }) {
             <div style={{ display: "flex", gap: "24px", alignItems: "baseline" }}>
               <button type="button" onClick={() => setStep(3)} style={textButtonStyle(false)}>Back</button>
               <button type="submit" disabled={status === "loading"} style={textButtonStyle(status === "loading")}>
-                {state.plan === "pro" ? "Continue to Stripe" : "Start analysing"}
+                {state.plan === "pro" ? "Notify me" : "Start analysing"}
               </button>
             </div>
           </div>
